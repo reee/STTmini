@@ -24,4 +24,7 @@ public sealed class TranscriptionComponentsFactory : ITranscriptionComponentsFac
 
     public IVoiceActivityDetector CreateVoiceActivityDetector() =>
         new SherpaVoiceActivityDetector(_models, _loggerFactory.CreateLogger<SherpaVoiceActivityDetector>());
+
+    /// <inheritdoc/>
+    public void EnsureModelsPresent() => _models.EnsureAllPresent();
 }

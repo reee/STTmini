@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using STTmini.Core.Audio;
 using STTmini.Core.Configuration;
+using STTmini.Core.Errors;
 using STTmini.Core.Pipeline;
 using STTmini.Core.Recognition;
 
@@ -29,7 +30,9 @@ public class TranscriptionEngineTests
             new NoProgress(),
             CancellationToken.None);
 
-        Assert.Equal("你好世界。", result);
+        Assert.Equal("你好世界。", result.FormattedText);
+        Assert.Single(result.Segments);
+        Assert.Equal(OutputFormat.PlainText, result.RequestedFormat);
     }
 
     [Fact]
@@ -42,12 +45,13 @@ public class TranscriptionEngineTests
             vadSegments: [new SpeechSegment(10f, samples)],
             recognizeImpl: s => new RecognitionResult("测试", new[] { "测", "试" }, new float[] { 0.5f, 1.0f }));
 
-        var srt = await engine.TranscribeAsync(
+        var result = await engine.TranscribeAsync(
             "fake.mp4",
             OutputFormat.Srt,
             new NoProgress(),
             CancellationToken.None);
 
+        var srt = result.FormattedText;
         Assert.Contains("00:00:10,500 --> 00:00:11,000", srt);
         Assert.Contains("测试", srt);
         Assert.StartsWith("1\n", srt);
@@ -107,11 +111,26 @@ public class TranscriptionEngineTests
             vadSegments: [new SpeechSegment(0f, longSamples)],
             recognizeImpl: _ => new RecognitionResult("内容。", Array.Empty<string>(), Array.Empty<float>()));
 
-        var text = await engine.TranscribeAsync(
+        var result = await engine.TranscribeAsync(
             "fake.mp4", OutputFormat.PlainText, new NoProgress(), CancellationToken.None);
 
         // 两段都识别为"内容。"，静音间隔由子段邻接决定（≈0 → 单换行）
-        Assert.Equal("内容。\n内容。", text);
+        Assert.Equal("内容。\n内容。", result.FormattedText);
+        Assert.Equal(2, result.Segments.Count);
+    }
+
+    [Fact]
+    public async Task Transcribe_MissingModels_ThrowsModelNotFoundException_AgentsMd_11_1()
+    {
+        // EnsureModelsPresent 抛 ModelNotFoundException 时，应优先于原生初始化冒泡（AGENTS.md §11.1）。
+        var engine = BuildEngine(
+            new float[SampleRate],
+            vadSegments: [new SpeechSegment(0f, new float[SampleRate])],
+            recognizeImpl: _ => new RecognitionResult("x", Array.Empty<string>(), Array.Empty<float>()),
+            modelsPresent: false);
+
+        await Assert.ThrowsAsync<ModelNotFoundException>(() =>
+            engine.TranscribeAsync("fake.mp4", OutputFormat.PlainText, new NoProgress(), CancellationToken.None));
     }
 
     // ---- helpers ----
@@ -119,10 +138,11 @@ public class TranscriptionEngineTests
     private static TranscriptionEngine BuildEngine(
         float[] extractedSamples,
         IReadOnlyList<SpeechSegment> vadSegments,
-        Func<float[], RecognitionResult> recognizeImpl)
+        Func<float[], RecognitionResult> recognizeImpl,
+        bool modelsPresent = true)
     {
         var extractor = new StubAudioExtractor(extractedSamples);
-        var factory = new StubComponentsFactory(vadSegments, recognizeImpl);
+        var factory = new StubComponentsFactory(vadSegments, recognizeImpl, modelsPresent);
         return new TranscriptionEngine(extractor, factory, NullLogger<TranscriptionEngine>.Instance);
     }
 
@@ -136,15 +156,25 @@ public class TranscriptionEngineTests
     {
         private readonly IReadOnlyList<SpeechSegment> _vadSegments;
         private readonly Func<float[], RecognitionResult> _recognize;
+        private readonly bool _modelsPresent;
 
-        public StubComponentsFactory(IReadOnlyList<SpeechSegment> vadSegments, Func<float[], RecognitionResult> recognize)
+        public StubComponentsFactory(IReadOnlyList<SpeechSegment> vadSegments, Func<float[], RecognitionResult> recognize, bool modelsPresent)
         {
             _vadSegments = vadSegments;
             _recognize = recognize;
+            _modelsPresent = modelsPresent;
         }
 
         public IRecognizer CreateRecognizer() => new StubRecognizer(_recognize);
         public IVoiceActivityDetector CreateVoiceActivityDetector() => new StubVad(_vadSegments);
+
+        public void EnsureModelsPresent()
+        {
+            if (!_modelsPresent)
+            {
+                throw new ModelNotFoundException("测试：模型缺失", "/models/model.int8.onnx");
+            }
+        }
     }
 
     private sealed class StubRecognizer(Func<float[], RecognitionResult> impl) : IRecognizer

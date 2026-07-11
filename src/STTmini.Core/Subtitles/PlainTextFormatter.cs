@@ -22,22 +22,33 @@ public static class PlainTextFormatter
         var sb = new StringBuilder();
         foreach (var seg in segments)
         {
-            var text = seg.Result.Text.Trim();
-            if (text.Length == 0)
-            {
-                continue;
-            }
-
-            // 静音间隔 > 阈值 → 段落分隔（空行）；否则单换行。
-            // 首段（SilenceBeforeSeconds == 0 且缓冲为空）不前置分隔。
-            if (sb.Length > 0)
-            {
-                sb.Append(seg.SilenceBeforeSeconds > ParagraphSilenceThresholdSeconds ? "\n\n" : "\n");
-            }
-
-            sb.Append(text);
+            AppendSegment(sb, seg, isFirst: sb.Length == 0);
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// 按 §5.3 规则把单段文本追加进缓冲区，供 UI 实时填充复用同一份逻辑（避免规则漂移）。
+    /// </summary>
+    /// <param name="buffer">待追加的缓冲区。</param>
+    /// <param name="segment">要追加的段。</param>
+    /// <param name="isFirst">是否为输出中的第一段（第一段不前置分隔）。</param>
+    /// <returns>追加后是否仍为第一段（即本次跳过了空文本则不变）。</returns>
+    public static bool AppendSegment(StringBuilder buffer, SegmentRecognition segment, bool isFirst)
+    {
+        var text = segment.Result.Text.Trim();
+        if (text.Length == 0)
+        {
+            return isFirst;
+        }
+
+        if (!isFirst)
+        {
+            buffer.Append(segment.SilenceBeforeSeconds > ParagraphSilenceThresholdSeconds ? "\n\n" : "\n");
+        }
+
+        buffer.Append(text);
+        return false;
     }
 }

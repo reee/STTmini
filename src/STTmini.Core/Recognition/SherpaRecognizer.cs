@@ -65,9 +65,10 @@ public sealed class SherpaRecognizer : IRecognizer
         }
         catch (Exception ex)
         {
+            // 记录原生异常（AGENTS.md §8.4），并向上冒泡为转录失败（AGENTS.md §11.1）：
+            // 静默丢弃单段会让该段内容从字幕里消失且无任何提示。
             _logger.LogError(ex, "ASR 识别段抛出异常（samples={Count}）", samples.Length);
-            // 不向上冒原生异常类型：转为空结果，保证单段失败不致整次转录中断。
-            return new RecognitionResult(string.Empty, Array.Empty<string>(), Array.Empty<float>());
+            throw;
         }
         finally
         {

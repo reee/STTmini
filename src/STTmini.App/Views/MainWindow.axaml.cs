@@ -1,6 +1,8 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Markup.Xaml;
+using Avalonia.Platform.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using STTmini.App.ViewModels;
 
@@ -34,5 +36,34 @@ public partial class MainWindow : Window
         var settingsVm = app.Services.GetRequiredService<SettingsViewModel>();
         var view = new SettingsView { DataContext = settingsVm };
         view.ShowDialog(this);
+    }
+
+    /// <summary>拖放悬停：仅当携带文件时允许 Copy（AGENTS.md §6.2 拖放）。</summary>
+    private void OnDragOver(object? sender, DragEventArgs e)
+    {
+        e.DragEffects = TryGetFirstFilePath(e.DataTransfer) is not null
+            ? DragDropEffects.Copy
+            : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    /// <summary>拖放落下：把第一个文件路径交给 ViewModel。</summary>
+    private void OnDrop(object? sender, DragEventArgs e)
+    {
+        var path = TryGetFirstFilePath(e.DataTransfer);
+        e.DragEffects = path is not null ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+
+        if (DataContext is MainWindowViewModel vm)
+        {
+            vm.AcceptDroppedFile(path);
+        }
+    }
+
+    /// <summary>从拖放数据里取第一个文件的可读本机路径，无则 null。</summary>
+    private static string? TryGetFirstFilePath(IDataTransfer? data)
+    {
+        var item = data?.TryGetFile();
+        return item?.TryGetLocalPath();
     }
 }

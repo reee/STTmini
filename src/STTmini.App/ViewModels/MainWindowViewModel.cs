@@ -1,6 +1,6 @@
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -9,12 +9,13 @@ using STTmini.Core.Audio;
 using STTmini.Core.Configuration;
 using STTmini.Core.Errors;
 using STTmini.Core.Pipeline;
+using STTmini.Core.Subtitles;
 
 namespace STTmini.App.ViewModels;
 
 /// <summary>
 /// 主窗口 ViewModel（AGENTS.md §6.2 / §6.3 / §6.4 / §7）。
-/// 单文件工作流：选输入 → 转录（进度+可取消）→ 查看结果 → 保存。
+/// 单文件工作流：选输入 → 转录（进度+可取消）→ 查看结果（纯文本/SRT 实时切换）→ 保存。
 /// </summary>
 public partial class MainWindowViewModel : ViewModelBase
 {
@@ -26,6 +27,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private CancellationTokenSource? _cts;
     private string? _inputPath;
+
+    /// <summary>最近一次转录的按段结果（供纯文本/SRT 切换重排，AGENTS.md §6.2 step 3）。</summary>
+    private IReadOnlyList<Core.Recognition.SegmentRecognition>? _lastSegments;
+
+    /// <summary>实时填充用的纯文本缓冲区（与 <see cref="PlainTextFormatter"/> 共用规则）。</summary>
+    private readonly StringBuilder _liveBuffer = new();
 
     public MainWindowViewModel(
         TranscriptionEngine engine,
@@ -71,9 +78,20 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private string _statusMessage = string.Empty;
 
-    /// <summary>输出格式。</summary>
+    /// <summary>
+    /// 输出格式。切换后会实时重排已完成的转录结果（AGENTS.md §6.2 step 3：纯文本/SRT 切换）。
+    /// </summary>
     [ObservableProperty]
     private OutputFormat _outputFormat;
+
+    /// <summary>输出格式变化后，若已有结果则按新格式重排（AGENTS.md §6.2 step 3）。</summary>
+    partial void OnOutputFormatChanged(OutputFormat value)
+    {
+        if (_lastSegments is { Count: > 0 } segments && !IsBusy)
+        {
+            OutputText = FormatSegments(segments, value);
+        }
+    }
 
     /// <summary>设置页 VM（嵌入主窗口的设置区）。</summary>
     public SettingsViewModel SettingsPage { get; }
@@ -82,10 +100,6 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task PickInputFileAsync()
     {
-        var startDir = !string.IsNullOrWhiteSpace(_settings.LastInputDirectory) && Directory.Exists(_settings.LastInputDirectory)
-            ? _settings.LastInputDirectory
-            : null;
-
         var path = await _filePicker.PickOpenFileAsync(
             "选择视频或音频文件",
             "*.mp4", "*.mkv", "*.mov", "*.avi", "*.webm", "*.mp3", "*.wav", "*.m4a", "*.flac", "*.aac");
@@ -95,12 +109,31 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        SetInputPath(path);
+    }
+
+    /// <summary>
+    /// 拖放落点：由 view 层的 DragDrop 事件转发文件路径调用（AGENTS.md §6.2：支持拖放）。
+    /// 传 null 表示拖放被取消/无有效文件，直接忽略。
+    /// </summary>
+    public void AcceptDroppedFile(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+        SetInputPath(path);
+    }
+
+    private void SetInputPath(string path)
+    {
         _inputPath = path;
         InputFilePath = path;
         _settings.LastInputDirectory = Path.GetDirectoryName(path);
         try { _settingsStore.Save(_settings); } catch { /* 非关键 */ }
 
         OutputText = string.Empty;
+        _lastSegments = null;
         StatusMessage = string.Empty;
     }
 
@@ -119,14 +152,17 @@ public partial class MainWindowViewModel : ViewModelBase
         ProgressLabel = string.Empty;
         OutputText = string.Empty;
         StatusMessage = string.Empty;
+        _lastSegments = null;
+        _liveBuffer.Clear();
         _cts = new CancellationTokenSource();
 
         var progress = new Progress<TranscriptionProgress>(OnProgress);
 
         try
         {
-            var text = await Task.Run(() => _engine.TranscribeAsync(_inputPath, OutputFormat, progress, _cts.Token), _cts.Token);
-            OutputText = text;
+            var result = await Task.Run(() => _engine.TranscribeAsync(_inputPath, OutputFormat, progress, _cts.Token), _cts.Token);
+            _lastSegments = result.Segments;
+            OutputText = result.FormattedText;
             StatusMessage = "转录完成。";
         }
         catch (OperationCanceledException)
@@ -214,32 +250,32 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private bool CanSave() => !IsBusy && !string.IsNullOrEmpty(OutputText);
 
-    /// <summary>进度回调（来自后台线程，须 marshal 到 UI 线程）。</summary>
+    /// <summary>
+    /// 进度回调。<see cref="Progress{T}"/> 已捕获 UI 线程的 SynchronizationContext，
+    /// 回调本身即在 UI 线程触发，无需再 marshal（AGENTS.md §7）。
+    /// </summary>
     private void OnProgress(TranscriptionProgress p)
     {
-        Dispatcher.UIThread.Post(() =>
+        ProgressLabel = p.Label;
+        if (p.TotalSegments > 0 && p.Stage == TranscriptionStage.Recognizing)
         {
-            ProgressLabel = p.Label;
-            if (p.TotalSegments > 0 && p.Stage == TranscriptionStage.Recognizing)
-            {
-                Progress = (double)p.CurrentSegment / p.TotalSegments;
-            }
-            else if (p.Stage == TranscriptionStage.Done)
-            {
-                Progress = 1;
-            }
+            Progress = (double)p.CurrentSegment / p.TotalSegments;
+        }
+        else if (p.Stage == TranscriptionStage.Done)
+        {
+            Progress = 1;
+        }
 
-            // 实时填充（AGENTS.md §6.3）
-            if (p.LatestSegment is not null)
-            {
-                var segText = p.LatestSegment.Result.Text.Trim();
-                if (segText.Length > 0)
-                {
-                    OutputText = string.IsNullOrEmpty(OutputText)
-                        ? segText
-                        : OutputText + (p.LatestSegment.SilenceBeforeSeconds > 2 ? "\n\n" : "\n") + segText;
-                }
-            }
-        });
+        // 实时填充（AGENTS.md §6.3）：复用 PlainTextFormatter 的分隔规则，避免漂移。
+        if (p.LatestSegment is not null)
+        {
+            PlainTextFormatter.AppendSegment(_liveBuffer, p.LatestSegment, isFirst: _liveBuffer.Length == 0);
+            OutputText = _liveBuffer.ToString();
+        }
     }
+
+    private static string FormatSegments(IReadOnlyList<Core.Recognition.SegmentRecognition> segments, OutputFormat format)
+        => format == OutputFormat.Srt
+            ? SrtFormatter.Format(segments)
+            : PlainTextFormatter.Format(segments);
 }

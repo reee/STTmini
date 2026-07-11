@@ -12,12 +12,15 @@
 
     <Grid RowDefinitions="Auto,*,Auto" Margin="16">
 
-        <!-- 顶部：输入选择 -->
-        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,12">
+        <!-- 顶部：输入选择（支持拖放，AGENTS.md §6.2） -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,12"
+              DragDrop.AllowDrop="True"
+              DragDrop.DragOver="OnDragOver"
+              DragDrop.Drop="OnDrop">
             <TextBox Grid.Column="0"
                      Text="{Binding InputFilePath}"
                      IsReadOnly="True"
-                     PlaceholderText="尚未选择文件"
+                     PlaceholderText="尚未选择文件（可拖入文件）"
                      VerticalContentAlignment="Center" />
             <Button Grid.Column="1" Content="选择文件…" Margin="8,0,0,0"
                     Command="{Binding PickInputFileCommand}" />

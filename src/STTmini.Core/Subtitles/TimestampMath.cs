@@ -27,8 +27,8 @@ public static class TimestampMath
 
     /// <summary>
     /// 计算 cue 边界（AGENTS.md §5.2）。
-    /// 起点 = 首 token 全局时间戳；终点 = 末 token 全局时间戳；
-    /// 若 token 时间戳缺失，回退到子段全局边界。
+    /// 起点 = 首 token 全局时间戳；终点 = 末 token 全局时间戳。**不**用 VAD/子段边界。
+    /// 仅当 token 时间戳缺失时，回退到子段全局边界。
     /// </summary>
     public static (float StartSeconds, float EndSeconds) CueBounds(
         IReadOnlyList<float> globalTokenTimestamps,
@@ -42,14 +42,14 @@ public static class TimestampMath
 
         float start = globalTokenTimestamps[0];
         float end = globalTokenTimestamps[^1];
-        // 末 token 时间戳是 token 起点而非终点，可能等于或略小于实际段末；
-        // 至少保证 end >= start，并以子段全局终点封顶（避免 cue 溢出）。
+        // 末 token 时间戳是 token 起点而非终点；至少保证 end >= start。
+        // 不以段边界封顶——AGENTS.md §5.2 明确 cue 边界由 token 时间戳决定，不用段边界。
         if (end < start)
         {
             end = start;
         }
 
-        return (start, Math.Min(end, segmentGlobalEnd));
+        return (start, end);
     }
 
     /// <summary>

@@ -30,16 +30,20 @@ public sealed class TranscriptionEngine
     /// 执行一次完整转录。
     /// </summary>
     /// <param name="inputPath">输入视频/音频文件。</param>
-    /// <param name="outputFormat">输出格式。</param>
+    /// <param name="outputFormat">输出格式（决定 <see cref="TranscriptionResult.FormattedText"/> 的初始格式）。</param>
     /// <param name="progress">进度回传（UI 线程 marshal 由调用方/框架处理）。</param>
     /// <param name="cancellationToken">取消令牌（段边界生效）。</param>
-    /// <returns>转录结果文本。</returns>
-    public async Task<string> TranscribeAsync(
+    /// <returns>转录结果（含按段识别结果与初始格式化文本）。</returns>
+    public async Task<TranscriptionResult> TranscribeAsync(
         string inputPath,
         OutputFormat outputFormat,
         IProgress<TranscriptionProgress> progress,
         CancellationToken cancellationToken)
     {
+        // 模型存在性校验优先于一切原生初始化（AGENTS.md §11.1）：
+        // 缺模型时抛 ModelNotFoundException，而非下游的 RecognizerInitializationException。
+        _components.EnsureModelsPresent();
+
         // [1] ffmpeg 解码（AGENTS.md §4.1[1] / §5.4）
         progress.Report(Stage(TranscriptionStage.DecodingAudio));
         float[] samples = await _audioExtractor.ExtractAsync(inputPath, cancellationToken);
@@ -111,7 +115,7 @@ public sealed class TranscriptionEngine
             : PlainTextFormatter.Format(recognized);
 
         progress.Report(Stage(TranscriptionStage.Done));
-        return text;
+        return new TranscriptionResult(recognized, text, outputFormat);
     }
 
     private static TranscriptionProgress Stage(TranscriptionStage stage)

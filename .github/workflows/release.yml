@@ -18,10 +18,13 @@ jobs:
             rid: win-x64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      # 第三方 action 一律 pin 到完整 SHA（AGENTS.md §10.4），浮动 tag 会被更新。
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
 
       - name: 安装 .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9  # v4
         with:
           dotnet-version: '10.0.x'
 
@@ -39,14 +42,14 @@ jobs:
           bash scripts/publish.sh "${{ steps.ver.outputs.version }}" "${{ matrix.rid }}"
 
       - name: 上传产物到 Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
         with:
           files: |
             dist/STTmini-${{ matrix.rid }}-*
 
       - name: 上传构建产物（artifact，便于调试）
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: STTmini-${{ matrix.rid }}-dist
           path: dist/

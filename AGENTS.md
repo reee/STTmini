@@ -215,7 +215,9 @@ OfflineRecognizerResult result = stream.Result;
 
 ### 5.4 ffmpeg 调用约定
 
-- 一次性调用：`ffmpeg -i <input> -ar 16000 -ac 1 -f wav <temp.wav>`
+- 一次性调用：`ffmpeg -y -vn -i <input> -ar 16000 -ac 1 -f wav <temp.wav>`
+  - `-y`：覆盖已存在的 temp WAV（重跑同一输入时不报错）。
+  - `-vn`：丢弃视频流（输入为视频时避免不必要的解码）。
 - 产出 temp WAV 后**全量载入内存**为 `float[]`（~5.7 MB/分钟）。
 - 内存代价已知：1 小时视频 ~345MB RAM。若未来成问题，升级为 temp 文件流式读取。
 - **错误处理**（类型化异常）：
@@ -395,7 +397,8 @@ dotnet publish src/STTmini.App -c Release \
 - **GitHub Actions，仅 Release 发布时触发**（不在普通 push/tag 时跑）。
 - 矩阵构建：`win-x64` + `linux-x64`。
 - 调用同一份 `scripts/publish.sh`（保证本地与 CI 一致）。
-- 产出上传到 GitHub Release。
+- 产出上传到 GitHub Release（用 `softprops/action-gh-release`）。
+- **第三方 action 一律 pin 到完整 commit SHA**（`@v2` 等浮动 tag 会被更新、有供应链风险）。SHA 见 `.github/workflows/release.yml`，升级时人工核对并更新。
 
 ### 10.5 发布脚本职责（`scripts/publish.sh`）
 

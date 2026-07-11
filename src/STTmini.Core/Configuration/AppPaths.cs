@@ -18,8 +18,15 @@ public static class AppPaths
             ? AppContext.BaseDirectory
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "STTmini");
 
-    /// <summary>配置文件完整路径（文件名 AGENTS.md 定为 settings.json）。</summary>
-    public static string SettingsFilePath => Path.Combine(ConfigDirectory, "settings.json");
+    /// <summary>
+    /// 配置文件完整路径（AGENTS.md §8.1）。
+    /// Windows：&lt;程序运行目录&gt;/STTmini.settings.json（portable）。
+    /// Linux：~/.config/STTmini/settings.json（XDG）。
+    /// </summary>
+    public static string SettingsFilePath =>
+        RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? Path.Combine(ConfigDirectory, "STTmini.settings.json")
+            : Path.Combine(ConfigDirectory, "settings.json");
 
     /// <summary>
     /// 日志文件所在目录（AGENTS.md §8.4）。

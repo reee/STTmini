@@ -42,14 +42,16 @@ public class TimestampMathTests
     }
 
     [Fact]
-    public void CueBounds_EndCappedBySegmentEnd()
+    public void CueBounds_NotCappedBySegmentEnd_AgentsMd_5_2()
     {
+        // AGENTS.md §5.2：cue 边界由 token 时间戳决定，不用 VAD/子段边界。
+        // 即便末 token 时间戳超出子段全局终点，cue 终点仍取 token 值，不被段终点封顶。
         var ts = new float[] { 1.0f, 9.0f };
 
         var (start, end) = TimestampMath.CueBounds(ts, segmentGlobalStart: 0f, segmentGlobalEnd: 5f);
 
         Assert.Equal(1.0f, start);
-        Assert.Equal(5f, end); // 被段终点封顶
+        Assert.Equal(9.0f, end);
     }
 
     [Fact]
