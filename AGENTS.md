@@ -122,8 +122,12 @@ UI 层，引用 `STTmini.Core`。职责：
    │                  (一次性 ffmpeg 调用)
    ▼
 [2] VAD 分段       Silero VAD → SpeechSegment[]（每个含 .Start 与 .Samples）
-   │                  注意：Silero VAD 默认 MaxSpeechDuration=5s 会自动切分；
+   │                  注意1：Silero VAD 默认 MaxSpeechDuration=5s 会自动切分；
    │                  v1 把它显式设为 30s，让超长段统一由 [3] 的 25s 窗口处理（单一切分策略）。
+   │                  注意2：sherpa-onnx 的 VoiceActivityDetector 是流式 API，必须按
+   │                  WindowSize(512 样本) 逐块 AcceptWaveform；一次性喂入整段音频会让
+   │                  内部 circular-buffer 溢出、仅保留尾部（实测 672s 输入只剩末尾 0.3s）。
+   │                  切片由纯逻辑 VadWindowSlicer 负责（见 §4.2）。
    │
    ▼
 [3] 超长段重切     若 segment 时长 > 25s → 固定窗口切为多个子段
@@ -145,7 +149,7 @@ UI 层，引用 `STTmini.Core`。职责：
 | 模块 | 纯逻辑（可测） | 原生封装（接口隔离） |
 |------|---------------|---------------------|
 | 音频提取 | `FfmpegCommandBuilder` | `IAudioExtractor`（封装 ffmpeg 进程调用） |
-| VAD | — | `IVoiceActivityDetector`（封装 `SherpaOnnx.VoiceActivityDetector`） |
+| VAD | `VadWindowSlicer`（按 512 样本窗口切分喂入） | `IVoiceActivityDetector`（封装 `SherpaOnnx.VoiceActivityDetector`） |
 | ASR | — | `IRecognizer`（封装 `SherpaOnnx.OfflineRecognizer`） |
 | 段切分 | `SegmentChunker`（25s 重切） | — |
 | 时间戳 | `TimestampMath`（偏移、cue 边界） | — |
@@ -183,7 +187,7 @@ OfflineStream stream = recognizer.CreateStream();
 stream.AcceptWaveform(sampleRate: 16000, samples);
 recognizer.Decode(stream);
 OfflineRecognizerResult result = stream.Result;
-  → result.Text        : string   全文（含中文标点）
+  → result.Text        : string   全文（**无标点**，见下方说明）
   → result.Tokens      : string[] 每 token
   → result.Timestamps  : float[]  每 token 时间戳（秒，段内相对）
   → result.Durations   : float[]  每 token 时长（秒，可能为 null）
@@ -197,7 +201,9 @@ OfflineRecognizerResult result = stream.Result;
 
 - **全局时间戳** = `seg.StartSeconds + result.Timestamps[i]`（VAD 段）或 `子段全局起点 + result.Timestamps[i]`（超长段重切后）。
   - sherpa-onnx 原生 `SpeechSegment.Start` 是 **int 样本偏移**（非秒）；封装层将其换算为秒 `Start / 16000f` 后填入 Core 自有的 `SpeechSegment.StartSeconds`。
-- Paraformer 原生输出中文标点，**不**需要额外的标点模型。
+- Paraformer-zh int8 实测**不输出任何标点**（无句号/逗号/问号）。早先文档称「原生输出中文标点」与实测不符，已修订。`OfflineParaformerModelConfig` 仅有 `.Model` 字段、配置层无标点开关；该 int8 模型本身就是无标点输出。
+  - **影响**：纯文本段落分隔只能依赖 VAD 段间静音（§5.3），无句号可作切分信号；段内为一长行无标点文本（当前设计接受，见 §5.3）。
+  - **不**引入额外标点模型（sherpa-onnx 的 `OfflinePunctuation`/CT-Transformer ~400MB，违背 Mini，§9.2）。若未来需要标点，再单独立项评估。
 
 ### 5.2 SRT 格式化规则
 
@@ -210,7 +216,8 @@ OfflineRecognizerResult result = stream.Result;
 ### 5.3 纯文本格式化规则
 
 - 按段顺序拼接各段 `Result.Text`。
-- **段落分隔启发式**：相邻两段之间的静音间隔 > **2 秒** → 插入空行（段落分隔）；否则单换行。
+- **段落分隔启发式**：相邻两段之间的静音间隔 > **0.6 秒** → 插入空行（段落分隔）；否则单换行。
+  - 取值依据：实测快语速中文视频句间停顿中位数约 0.47s、p75 约 0.67s（如「反向旅游」素材：31 段 gap 中最大 0.95s，**无任何 gap ≥ 1.0s**）。早先的 2s 阈值在此类视频上永远触达不到，导致纯文本全部兜底为单换行。0.6s 取 p75 附近，能切出段落又不至于把句内停顿误判为段落断点。
 - 不做 NLP 级别的句子重排。
 
 ### 5.4 ffmpeg 调用约定
@@ -485,6 +492,7 @@ v1 维持 Paraformer-zh int8。
 | `Audio` | `FfmpegAudioExtractor` | `IAudioExtractor` 实现，跑 ffmpeg + 读 WAV→float[] |
 | `Audio` | `WavReader` | 16kHz mono PCM16 WAV → float[] |
 | `Audio` | `SegmentChunker` / `ChunkedSegment` | 25s 超长段重切（纯逻辑） |
+| `Audio` | `VadWindowSlicer` | VAD 喂入的 512 样本窗口切片（纯逻辑） |
 | `Audio` | `SpeechSegment` / `IVoiceActivityDetector` / `SherpaVoiceActivityDetector` | VAD 抽象 + Silero 实现 |
 | `Audio` | `IAudioExtractor` | 音频提取接口 |
 | `Configuration` | `Settings` / `OutputFormat` / `OutputFormats` | 设置 POCO + 枚举 + UI 列表 |

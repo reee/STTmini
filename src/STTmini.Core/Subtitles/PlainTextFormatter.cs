@@ -5,12 +5,17 @@ namespace STTmini.Core.Subtitles;
 
 /// <summary>
 /// 纯文本格式化（AGENTS.md §5.3）。纯逻辑。
-/// 规则：按段顺序拼接；相邻段静音间隔 &gt; 2 秒 → 插入空行（段落分隔），否则单换行。
+/// 规则：按段顺序拼接；相邻段静音间隔 &gt; 0.6 秒 → 插入空行（段落分隔），否则单换行。
 /// </summary>
 public static class PlainTextFormatter
 {
-    /// <summary>段落分隔的静音阈值（秒）。</summary>
-    public const float ParagraphSilenceThresholdSeconds = 2f;
+    /// <summary>
+    /// 段落分隔的静音阈值（秒）。
+    /// 取值依据：实测快语速视频句间停顿中位数约 0.47s、p75 约 0.67s；
+    /// 原值 2s 在此类视频上永远触达不到（最大 gap ~0.95s），导致纯文本全部兜底单换行。
+    /// 0.6s 取 p75 附近，能切出段落又不至于把句内停顿误判为段落断点。
+    /// </summary>
+    public const float ParagraphSilenceThresholdSeconds = 0.6f;
 
     /// <summary>
     /// 将各段识别结果格式化为纯文本。

@@ -27,7 +27,8 @@ public sealed class SherpaVoiceActivityDetector : IVoiceActivityDetector
                 // 默认 MinSilenceDuration=0.5s、MinSpeechDuration=0.25s 合理，沿用。
                 MinSilenceDuration = 0.5f,
                 MinSpeechDuration = 0.25f,
-                WindowSize = 512,
+                // 与 VadWindowSlicer.WindowSize 必须一致：VAD 模型按此窗口推理。
+                WindowSize = VadWindowSlicer.WindowSize,
                 // 默认值 5.0s 会让 VAD 自行把长句切成 ≤5s 段；
                 // v1 统一由 SegmentChunker 的 25s 窗口切分（AGENTS.md §4.1[3]），
                 // 故抬高到 30s，使 VAD 输出的段尽可能完整。
@@ -60,17 +61,21 @@ public sealed class SherpaVoiceActivityDetector : IVoiceActivityDetector
         var segments = new List<SpeechSegment>();
         try
         {
-            _vad.AcceptWaveform(samples);
-            _vad.Flush();
-
-            while (!_vad.IsEmpty())
+            // sherpa-onnx 的 VAD 必须按窗口（VadWindowSlicer.WindowSize=512 样本）逐块喂入，
+            // 否则内部 circular-buffer 会溢出、语音状态被破坏——实测一次性喂入 672s 音频
+            // 只剩末尾 0.3s 一段。官方 C# 示例（vad-non-streaming-asr-paraformer）即按
+            // WindowSize 循环 AcceptWaveform。切片逻辑见 VadWindowSlicer（AGENTS.md §4.2）。
+            foreach (var (offset, length) in VadWindowSlicer.Slice(samples.Length))
             {
-                var seg = _vad.Front();
-                // sherpa-onnx 的 SpeechSegment.Start 是样本偏移（int），换算为秒。
-                float startSeconds = seg.Start / (float)AudioConstants.SampleRate;
-                segments.Add(new SpeechSegment(startSeconds, seg.Samples));
-                _vad.Pop();
+                // 每个窗口复制成独立短缓冲：满窗可复用，尾部短窗按实际长度分配。
+                var window = new float[length];
+                Array.Copy(samples, offset, window, 0, length);
+                _vad.AcceptWaveform(window);
+                DrainCompleted(segments);
             }
+
+            _vad.Flush();
+            DrainCompleted(segments);
         }
         catch (Exception ex)
         {
@@ -78,6 +83,21 @@ public sealed class SherpaVoiceActivityDetector : IVoiceActivityDetector
         }
 
         return segments;
+    }
+
+    /// <summary>
+    /// 弹出 VAD 已完成检测的段，换算 <c>Start</c> 样本偏移为秒后加入结果。
+    /// </summary>
+    private void DrainCompleted(List<SpeechSegment> segments)
+    {
+        while (!_vad.IsEmpty())
+        {
+            var seg = _vad.Front();
+            // sherpa-onnx 的 SpeechSegment.Start 是样本偏移（int），换算为秒。
+            float startSeconds = seg.Start / (float)AudioConstants.SampleRate;
+            segments.Add(new SpeechSegment(startSeconds, seg.Samples));
+            _vad.Pop();
+        }
     }
 
     public void Dispose() => _vad.Dispose();
