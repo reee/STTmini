@@ -1,0 +1,61 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:STTmini.App.ViewModels"
+        xmlns:config="using:STTmini.Core.Configuration"
+        xmlns:cvt="using:STTmini.App.Converters"
+        x:Class="STTmini.App.Views.SettingsView"
+        x:DataType="vm:SettingsViewModel"
+        Title="设置"
+        Width="560" Height="400"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner">
+
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="16">
+
+        <!-- ffmpeg 路径覆盖（AGENTS.md §6.5 / §11.1） -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="ffmpeg 路径" FontWeight="SemiBold" Margin="0,0,0,4" />
+            <TextBlock Text="留空则自动检测系统 PATH；可手动指定 ffmpeg 可执行文件或其所在目录。"
+                       FontSize="12" Opacity="0.7" Margin="0,0,0,6" />
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBox Grid.Column="0"
+                         Text="{Binding FfmpegPathOverride}"
+                         PlaceholderText="例如 /usr/bin/ffmpeg 或 C:\tools\ffmpeg.exe" />
+                <Button Grid.Column="1" Content="重新检测" Margin="8,0,0,0"
+                        Command="{Binding RefreshFfmpegStatusCommand}" />
+            </Grid>
+            <TextBlock Text="{Binding FfmpegStatusText}"
+                       FontSize="12" Margin="0,6,0,0"
+                       Foreground="{DynamicResource ThemeForegroundLowBrush}" />
+        </StackPanel>
+
+        <!-- 默认输出格式（AGENTS.md §6.5） -->
+        <StackPanel Grid.Row="1" Margin="0,0,0,16">
+            <TextBlock Text="默认输出格式" FontWeight="SemiBold" Margin="0,0,0,4" />
+            <ComboBox SelectedItem="{Binding DefaultOutputFormat}"
+                      ItemsSource="{x:Static config:OutputFormats.All}"
+                      MinWidth="160">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="config:OutputFormat">
+                        <TextBlock Text="{Binding Converter={x:Static cvt:OutputFormatNameConverter.Instance}}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+        </StackPanel>
+
+        <!-- 模型目录（只读，AGENTS.md §6.5） -->
+        <StackPanel Grid.Row="2" Margin="0,0,0,16">
+            <TextBlock Text="模型目录（随程序附带）" FontWeight="SemiBold" Margin="0,0,0,4" />
+            <TextBox Text="{Binding ModelDirectory}" IsReadOnly="True" />
+        </StackPanel>
+
+        <Panel Grid.Row="3" />
+
+        <!-- 底部操作 -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Spacing="8">
+            <Button Content="保存" Command="{Binding SaveCommand}" Click="CloseOnClick" />
+            <Button Content="关闭" Click="CloseOnClick" />
+        </StackPanel>
+    </Grid>
+</Window>

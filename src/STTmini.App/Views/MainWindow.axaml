@@ -1,0 +1,72 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:STTmini.App.ViewModels"
+        xmlns:config="using:STTmini.Core.Configuration"
+        xmlns:cvt="using:STTmini.App.Converters"
+        x:Class="STTmini.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="STTmini — 中文语音转文本"
+        Width="860" Height="640"
+        MinWidth="640" MinHeight="520"
+        WindowStartupLocation="CenterScreen">
+
+    <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+
+        <!-- 顶部：输入选择 -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,12">
+            <TextBox Grid.Column="0"
+                     Text="{Binding InputFilePath}"
+                     IsReadOnly="True"
+                     PlaceholderText="尚未选择文件"
+                     VerticalContentAlignment="Center" />
+            <Button Grid.Column="1" Content="选择文件…" Margin="8,0,0,0"
+                    Command="{Binding PickInputFileCommand}" />
+            <Button Grid.Column="2" Content="开始转录" Margin="8,0,0,0"
+                    Command="{Binding TranscribeCommand}" />
+            <Button Grid.Column="3" Content="取消" Margin="8,0,0,0"
+                    Command="{Binding CancelCommand}" />
+        </Grid>
+
+        <!-- 中部：进度 + 结果 -->
+        <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto">
+
+            <!-- 进度区（AGENTS.md §6.3） -->
+            <StackPanel Grid.Row="0" Margin="0,0,0,8" IsVisible="{Binding IsBusy}">
+                <TextBlock Text="{Binding ProgressLabel}" Margin="0,0,0,4" />
+                <ProgressBar Value="{Binding Progress}" Maximum="1" Height="6" />
+            </StackPanel>
+
+            <!-- 结果区 -->
+            <TextBox Grid.Row="1"
+                     Text="{Binding OutputText}"
+                     AcceptsReturn="True"
+                     IsReadOnly="True"
+                     FontFamily="Cascadia Code,Consolas,Menlo,monospace"
+                     FontSize="14"
+                     PlaceholderText="转录结果将显示在此处" />
+        </Grid>
+
+        <!-- 底部：状态 + 输出格式 + 保存 + 设置 -->
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,12,0,0">
+            <TextBlock Grid.Column="0"
+                       Text="{Binding StatusMessage}"
+                       VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
+                <TextBlock Text="格式：" VerticalAlignment="Center" Margin="0,0,4,0" />
+                <ComboBox SelectedItem="{Binding OutputFormat}"
+                          ItemsSource="{x:Static config:OutputFormats.All}"
+                          MinWidth="100">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="config:OutputFormat">
+                            <TextBlock Text="{Binding Converter={x:Static cvt:OutputFormatNameConverter.Instance}}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+            </StackPanel>
+            <Button Grid.Column="2" Content="保存结果…" Margin="0,0,8,0"
+                    Command="{Binding SaveCommand}" />
+            <Button Grid.Column="3" Content="设置…" Click="OpenSettings" />
+        </Grid>
+    </Grid>
+</Window>

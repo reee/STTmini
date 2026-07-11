@@ -1,0 +1,53 @@
+# STTmini 发布流水线（AGENTS.md §10.4）。
+# 仅在 GitHub Release 发布时触发（不在普通 push/tag 时跑）。
+name: release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            rid: linux-x64
+          - os: windows-2022
+            rid: win-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # 版本号取自 release tag（如 v0.1.0 → 0.1.0）
+      - name: 解析版本号
+        id: ver
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: 发布（调用 scripts/publish.sh，本地与 CI 一致）
+        shell: bash
+        run: |
+          bash scripts/publish.sh "${{ steps.ver.outputs.version }}" "${{ matrix.rid }}"
+
+      - name: 上传产物到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/STTmini-${{ matrix.rid }}-*
+
+      - name: 上传构建产物（artifact，便于调试）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: STTmini-${{ matrix.rid }}-dist
+          path: dist/
+          if-no-files-found: warn

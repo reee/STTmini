@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/STTmini.App/STTmini.App.csproj" />
+    <Project Path="src/STTmini.Core.Tests/STTmini.Core.Tests.csproj" />
+    <Project Path="src/STTmini.Core/STTmini.Core.csproj" />
+  </Folder>
+</Solution>

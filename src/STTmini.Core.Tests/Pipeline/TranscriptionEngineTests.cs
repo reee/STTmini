@@ -1,0 +1,171 @@
+using Microsoft.Extensions.Logging.Abstractions;
+using STTmini.Core.Audio;
+using STTmini.Core.Configuration;
+using STTmini.Core.Pipeline;
+using STTmini.Core.Recognition;
+
+namespace STTmini.Core.Tests.Pipeline;
+
+/// <summary>
+/// 用 mock 组件验证 TranscriptionEngine 的编排逻辑（AGENTS.md §4.1 / §7），
+/// 不依赖真实模型 / 原生库。
+/// </summary>
+public class TranscriptionEngineTests
+{
+    private const int SampleRate = 16000;
+
+    [Fact]
+    public async Task Transcribe_ProducesPlainTextOutput()
+    {
+        var samples = new float[SampleRate * 1]; // 1 秒音频占位
+        var engine = BuildEngine(
+            samples,
+            vadSegments: [new SpeechSegment(0f, samples)],
+            recognizeImpl: s => new RecognitionResult("你好世界。", new[] { "你", "好", "世", "界" }, new float[] { 0.1f, 0.3f, 0.5f, 0.7f }));
+
+        var result = await engine.TranscribeAsync(
+            "fake.mp4",
+            OutputFormat.PlainText,
+            new NoProgress(),
+            CancellationToken.None);
+
+        Assert.Equal("你好世界。", result);
+    }
+
+    [Fact]
+    public async Task Transcribe_SrtOutput_UsesGlobalTimestamps()
+    {
+        var samples = new float[SampleRate];
+        // VAD 段起点 10 秒，段内 token 相对 0.5/1.0
+        var engine = BuildEngine(
+            samples,
+            vadSegments: [new SpeechSegment(10f, samples)],
+            recognizeImpl: s => new RecognitionResult("测试", new[] { "测", "试" }, new float[] { 0.5f, 1.0f }));
+
+        var srt = await engine.TranscribeAsync(
+            "fake.mp4",
+            OutputFormat.Srt,
+            new NoProgress(),
+            CancellationToken.None);
+
+        Assert.Contains("00:00:10,500 --> 00:00:11,000", srt);
+        Assert.Contains("测试", srt);
+        Assert.StartsWith("1\n", srt);
+    }
+
+    [Fact]
+    public async Task Transcribe_ReportsProgressStages()
+    {
+        var reported = new List<TranscriptionProgress>();
+        var progress = new ProgressCollector(reported);
+
+        var engine = BuildEngine(
+            new float[SampleRate],
+            vadSegments: [new SpeechSegment(0f, new float[SampleRate])],
+            recognizeImpl: _ => new RecognitionResult("x", Array.Empty<string>(), Array.Empty<float>()));
+
+        await engine.TranscribeAsync("fake.mp4", OutputFormat.PlainText, progress, CancellationToken.None);
+
+        var stages = reported.Select(p => p.Stage).ToArray();
+        Assert.Contains(TranscriptionStage.DecodingAudio, stages);
+        Assert.Contains(TranscriptionStage.VoiceActivityDetection, stages);
+        Assert.Contains(TranscriptionStage.Recognizing, stages);
+        Assert.Contains(TranscriptionStage.Formatting, stages);
+        Assert.Contains(TranscriptionStage.Done, stages);
+    }
+
+    [Fact]
+    public async Task Transcribe_CancelAtSegmentBoundary_ThrowsOperationCanceled()
+    {
+        // 两段：在第一段识别后取消
+        var samples = new float[SampleRate];
+        using var cts = new CancellationTokenSource();
+        var engine = BuildEngine(
+            samples,
+            vadSegments:
+            [
+                new SpeechSegment(0f, samples),
+                new SpeechSegment(2f, samples),
+            ],
+            recognizeImpl: s =>
+            {
+                cts.Cancel(); // 模拟在段边界被取消
+                return new RecognitionResult("段。", Array.Empty<string>(), Array.Empty<float>());
+            });
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            engine.TranscribeAsync("fake.mp4", OutputFormat.PlainText, new NoProgress(), cts.Token));
+    }
+
+    [Fact]
+    public async Task Transcribe_OverlongSegment_GetsChunked()
+    {
+        // 30 秒 VAD 段 → SegmentChunker 切为 25s + 5s 两段
+        var longSamples = new float[SampleRate * 30];
+        var engine = BuildEngine(
+            new float[SampleRate],
+            vadSegments: [new SpeechSegment(0f, longSamples)],
+            recognizeImpl: _ => new RecognitionResult("内容。", Array.Empty<string>(), Array.Empty<float>()));
+
+        var text = await engine.TranscribeAsync(
+            "fake.mp4", OutputFormat.PlainText, new NoProgress(), CancellationToken.None);
+
+        // 两段都识别为"内容。"，静音间隔由子段邻接决定（≈0 → 单换行）
+        Assert.Equal("内容。\n内容。", text);
+    }
+
+    // ---- helpers ----
+
+    private static TranscriptionEngine BuildEngine(
+        float[] extractedSamples,
+        IReadOnlyList<SpeechSegment> vadSegments,
+        Func<float[], RecognitionResult> recognizeImpl)
+    {
+        var extractor = new StubAudioExtractor(extractedSamples);
+        var factory = new StubComponentsFactory(vadSegments, recognizeImpl);
+        return new TranscriptionEngine(extractor, factory, NullLogger<TranscriptionEngine>.Instance);
+    }
+
+    private sealed class StubAudioExtractor(float[] samples) : IAudioExtractor
+    {
+        public Task<float[]> ExtractAsync(string inputPath, CancellationToken cancellationToken)
+            => Task.FromResult(samples);
+    }
+
+    private sealed class StubComponentsFactory : ITranscriptionComponentsFactory
+    {
+        private readonly IReadOnlyList<SpeechSegment> _vadSegments;
+        private readonly Func<float[], RecognitionResult> _recognize;
+
+        public StubComponentsFactory(IReadOnlyList<SpeechSegment> vadSegments, Func<float[], RecognitionResult> recognize)
+        {
+            _vadSegments = vadSegments;
+            _recognize = recognize;
+        }
+
+        public IRecognizer CreateRecognizer() => new StubRecognizer(_recognize);
+        public IVoiceActivityDetector CreateVoiceActivityDetector() => new StubVad(_vadSegments);
+    }
+
+    private sealed class StubRecognizer(Func<float[], RecognitionResult> impl) : IRecognizer
+    {
+        public RecognitionResult Recognize(float[] samples) => impl(samples);
+        public void Dispose() { }
+    }
+
+    private sealed class StubVad(IReadOnlyList<SpeechSegment> segments) : IVoiceActivityDetector
+    {
+        public IReadOnlyList<SpeechSegment> Detect(float[] samples) => segments;
+        public void Dispose() { }
+    }
+
+    private sealed class NoProgress : IProgress<TranscriptionProgress>
+    {
+        public void Report(TranscriptionProgress value) { }
+    }
+
+    private sealed class ProgressCollector(List<TranscriptionProgress> list) : IProgress<TranscriptionProgress>
+    {
+        public void Report(TranscriptionProgress value) => list.Add(value);
+    }
+}

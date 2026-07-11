@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>STTmini.Core</RootNamespace>
+    <!-- 类库默认不产生程序集信息；由本工程统一产出 -->
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+    <!-- AGENTS.md §2.1：托管包（要求 ≥ 1.13.3） -->
+    <PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.13.4" />
+    <!-- AGENTS.md §2.1：两个原生运行时包无条件引用，NuGet RID 图谱自动选取 -->
+    <PackageReference Include="org.k2fsa.sherpa.onnx.runtime.linux-x64" Version="1.13.4" />
+    <PackageReference Include="org.k2fsa.sherpa.onnx.runtime.win-x64" Version="1.13.4" />
+    <!-- 禁止额外引用 Microsoft.ML.OnnxRuntime -->
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,13 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:STTmini.App"
+             x:Class="STTmini.App.App"
+             RequestedThemeVariant="Light">
+    <!--
+      ViewLocator：通过 ViewModel 名称匹配同命名空间下的 View。
+      与 12.x 的默认编译绑定兼容（DataTemplates 按类型匹配，不参与编译绑定）。
+    -->
+    <Application.DataTemplates>
+        <local:ViewLocator />
+    </Application.DataTemplates>
+</Application>

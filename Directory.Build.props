@@ -1,0 +1,13 @@
+<Project>
+
+  <PropertyGroup>
+    <!-- 集中管理版本号（AGENTS.md §10.3）；CI 发布时 -p:Version=<version> 覆盖 -->
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <Version>$(VersionPrefix)</Version>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>
