@@ -21,14 +21,14 @@ rm -rf "$DIST"
 mkdir -p "$DIST"
 
 # 1) 模型下载到缓存目录（多 RID 共用，避免重复下载）
-echo "==> 1/4 下载模型到缓存"
+echo "==> 1/5 下载模型到缓存"
 bash "$ROOT/scripts/models.sh" "$MODELS_CACHE"
 
 for rid in "${RIDS[@]}"; do
   echo "==> 发布 RID=$rid 版本=$VERSION"
 
   # 2) dotnet publish（显式 RID、self-contained、单文件，禁止 trim/AOT，AGENTS.md §10.2）
-  echo "==> 2/4 编译"
+  echo "==> 2/5 编译"
   dotnet publish "$APP_PROJECT" \
     -c Release \
     -r "$rid" \
@@ -40,12 +40,18 @@ for rid in "${RIDS[@]}"; do
   PUBLISH_OUT="$ROOT/src/STTmini.App/bin/Release/net10.0/$rid/publish"
 
   # 3) 复制 models/ 进发布目录
-  echo "==> 3/4 嵌入模型"
+  echo "==> 3/5 嵌入模型"
   mkdir -p "$PUBLISH_OUT/models"
   cp -r "$MODELS_CACHE/." "$PUBLISH_OUT/models/"
 
-  # 4) 打包
-  echo "==> 4/4 打包"
+  # 4) 剔除 pdb（发布产物不含调试符号）
+  #    Release 默认仍生成 portable pdb（自家代码 + NuGet 原生库如 HarfBuzzSharp/SkiaSharp 都带），
+  #    打包前统一删除；不改编译行为，本地调试与开发体验不受影响。
+  echo "==> 4/5 剔除调试符号（pdb）"
+  find "$PUBLISH_OUT" -type f -name '*.pdb' -delete
+
+  # 5) 打包
+  echo "==> 5/5 打包"
   case "$rid" in
     win-*)
       archive="$DIST/STTmini-$rid-$VERSION.zip"

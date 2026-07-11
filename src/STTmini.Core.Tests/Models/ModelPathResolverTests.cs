@@ -8,12 +8,16 @@ public class ModelPathResolverTests
     [Fact]
     public void Paths_AreBuiltFromModelDirectory()
     {
-        var r = new ModelPathResolver("/models");
+        // 期望值用 Path.Combine 构造，使其在各平台采用本机分隔符
+        // （Windows = \，Linux = /）。ModelPathResolver 内部同样用 Path.Combine，
+        // 故两端必须用同一构造方式比较，避免硬编码字面量在异平台上失配。
+        const string dir = "/models";
+        var r = new ModelPathResolver(dir);
 
-        Assert.Equal("/models/model.int8.onnx", r.ParaformerModelPath);
-        Assert.Equal("/models/tokens.txt", r.ParaformerTokensPath);
-        Assert.Equal("/models/am.mvn", r.ParaformerAmvnPath);
-        Assert.Equal("/models/silero_vad.onnx", r.SileroVadPath);
+        Assert.Equal(Path.Combine(dir, "model.int8.onnx"), r.ParaformerModelPath);
+        Assert.Equal(Path.Combine(dir, "tokens.txt"), r.ParaformerTokensPath);
+        Assert.Equal(Path.Combine(dir, "am.mvn"), r.ParaformerAmvnPath);
+        Assert.Equal(Path.Combine(dir, "silero_vad.onnx"), r.SileroVadPath);
     }
 
     [Fact]

@@ -425,6 +425,8 @@ dotnet publish src/STTmini.App -c Release \
 3. 把 `models/` 复制进各 publish 输出目录。
 4. 打包为 `.zip`（Windows）/ `.tar.gz`（Linux）。
 
+> **Windows 原生等价脚本**：`scripts/publish.ps1` + `scripts/models.ps1`（PowerShell）是上述 bash 脚本的对等实现，供 Windows 用户不装 Git Bash 即可本地发布（CI 仍走 `publish.sh`）。两者调用同一份 `dotnet publish` 命令（§10.2 硬约束完全一致），仅打包工具不同：PowerShell 版用 .NET `ZipFile` 打 zip、用 Windows 内置 bsdtar（`%WINDIR%\System32\tar.exe`）打 tar.gz——**不**用 PATH 里的 `tar`，因为 Git for Windows 的 GNU tar 会把 `D:\path` 误解析为远程主机语法。
+
 ---
 
 ## 11. 错误处理与日志
