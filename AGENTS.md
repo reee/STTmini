@@ -262,8 +262,19 @@ ASR 阶段每完成一段即通过 `IProgress<T>` 推送一次，结果面板**�
 | 项 | 说明 |
 |----|------|
 | ffmpeg 路径 | 自动检测 PATH，用户可手动覆盖。未配置时转录入口给出明显提示。 |
-| 模型目录 | v1 只读（"已随程序附带"）。显示当前模型路径。 |
 | 默认输出格式 | 纯文本（默认）/ SRT。 |
+
+> 模型目录随发布包附带（§8.3 / §9.1），用户不可改、无需在 UI 暴露——早期文档在此列过只读展示项，现已移除（冗余）。
+
+### 6.6 视觉设计语言（B 方案：卡片现代）
+
+主窗与设置弹窗采用统一的**卡片现代风**（Linear/Notion 系），由集中式样式层 `Styles/AppTheme.axaml` 定义：
+
+- **配色**：浅灰页面底（`#F4F5F7`）+ 白卡片 + 柔阴影；靛蓝强调色（`#5B5BD6`）用于主按钮/进度条/链接。
+- **结构**：顶部应用栏（品牌 logo + 主 CTA）+ 单张居中主卡片（内分输入/进度/结果三段）+ 卡片底操作条。
+- **样式机制**：Avalonia 12 class 选择器（`Classes="card"` / `"primary"` / `"input-pill"` 等）。`App.axaml` 的 `Application.Styles` 里**必须先放 `<FluentTheme />`，再 `<StyleInclude>` 本主题**——`AppTheme` 只定义 class 选择器覆盖，控件模板（ComboBox 弹出、TextBox 文字呈现等）全靠 FluentTheme 提供；漏掉 FluentTheme 会导致 ComboBox 点不开下拉、TextBox 渲染空白。`AppTheme.axaml` 以 `AvaloniaResource` 打包进 `.csproj`。
+- **logo**：纯 AXAML `LinearGradientBrush`（`#5B5BD6`→`#8B5CF6`），不打包图片资源。
+- 视觉来源：`prototype/ui-redesign/`（throwaway HTML 原型，变体 B 胜出，A 极简/C 深色落选）。
 
 ---
 
@@ -498,8 +509,9 @@ v1 维持 Paraformer-zh int8。
 | `Views` | `MainWindow` / `SettingsView` | Avalonia 视图（简体中文） |
 | `Services` | `IFilePickerService` / `FilePickerService` | 文件选择/保存（StorageProvider） |
 | `Converters` | `OutputFormatNameConverter` | 枚举→中文名（ComboBox） |
+| `Styles` | `AppTheme.axaml`（loose `<Styles>` 资源，无 code-behind） | 集中式样式层（class 选择器设计系统，B 方案，§6.6） |
 
-**STTmini.Core.Tests**（`src/STTmini.Core.Tests/`，xunit）：44 个测试覆盖全部纯逻辑 + 流水线编排（mock 组件）。
+**STTmini.Core.Tests**（`src/STTmini.Core.Tests/`，xunit）：覆盖全部纯逻辑 + 流水线编排（mock 组件）。具体用例数随实现增长，以 `dotnet test` 实测为准。
 
 ### 14.2 实现期对本文档的技术修正
 
@@ -510,6 +522,7 @@ v1 维持 Paraformer-zh int8。
 - 离线结果 `OfflineRecognizerResult` **无** `.Json`（仅在线有）。
 - Silero VAD `MaxSpeechDuration` 默认 5s 会自动切分；v1 显式设 30s，统一由 25s `SegmentChunker` 切分。
 - Avalonia 选定为 **12.1.x**（用户确认），调试可视化器已并入核心包，不再单独引用 `Avalonia.Diagnostics`。
+- 引入集中式样式层 `Styles/AppTheme.axaml`（B 方案卡片现代风，§6.6）：早先视图样式全内联；v1 改为 class 选择器设计系统，主窗与设置弹窗共享。`App.axaml` 用 `<StyleInclude>` 合并，`.csproj` 以 `AvaloniaResource` 打包。视觉源自 throwaway HTML 原型 `prototype/ui-redesign/`（变体 B 胜出）。
 
 ### 14.3 待办（手动冒烟，发布前）
 

@@ -3,6 +3,15 @@
              xmlns:local="using:STTmini.App"
              x:Class="STTmini.App.App"
              RequestedThemeVariant="Light">
+
+    <!-- 集中式样式层（B 方案：卡片现代 / Linear-Notion 风，AGENTS.md §6.6）。
+         FluentTheme 提供控件模板（ComboBox 弹出/TextBox 呈现等），
+         AppTheme 在其上以 class 选择器覆盖视觉。顺序：基础主题在前，覆盖在后。 -->
+    <Application.Styles>
+        <FluentTheme />
+        <StyleInclude Source="avares://STTmini.App/Styles/AppTheme.axaml" />
+    </Application.Styles>
+
     <!--
       ViewLocator：通过 ViewModel 名称匹配同命名空间下的 View。
       与 12.x 的默认编译绑定兼容（DataTemplates 按类型匹配，不参与编译绑定）。

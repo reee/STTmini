@@ -9,6 +9,11 @@
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
 
+  <!-- 集中式样式层（AppTheme.axaml）打包为 Avalonia 资源，供 App.axaml 的 StyleInclude 解析 -->
+  <ItemGroup>
+    <AvaloniaResource Include="Styles\AppTheme.axaml" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.0" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.0" />

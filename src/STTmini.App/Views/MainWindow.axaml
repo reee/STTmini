@@ -10,66 +10,126 @@
         MinWidth="640" MinHeight="520"
         WindowStartupLocation="CenterScreen">
 
-    <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+    <!--
+      B 方案布局：顶部应用栏 + 居中单张主卡片（输入/进度/结果 三段）+ 卡片内操作条。
+      所有 ViewModel 绑定与拖放/设置处理器原样保留（AGENTS.md §6.2 / §6.3 / §6.4）。
+      视觉样式来自 Styles/AppTheme.axaml 的 class 选择器。
+    -->
+    <Grid RowDefinitions="Auto,*">
 
-        <!-- 顶部：输入选择（支持拖放，AGENTS.md §6.2） -->
-        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,12"
-              DragDrop.AllowDrop="True"
-              DragDrop.DragOver="OnDragOver"
-              DragDrop.Drop="OnDrop">
-            <TextBox Grid.Column="0"
-                     Text="{Binding InputFilePath}"
-                     IsReadOnly="True"
-                     PlaceholderText="尚未选择文件（可拖入文件）"
-                     VerticalContentAlignment="Center" />
-            <Button Grid.Column="1" Content="选择文件…" Margin="8,0,0,0"
-                    Command="{Binding PickInputFileCommand}" />
-            <Button Grid.Column="2" Content="开始转录" Margin="8,0,0,0"
-                    Command="{Binding TranscribeCommand}" />
-            <Button Grid.Column="3" Content="取消" Margin="8,0,0,0"
-                    Command="{Binding CancelCommand}" />
-        </Grid>
+        <!-- ============ 顶部应用栏 ============ -->
+        <Border Grid.Row="0" Classes="appbar">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                <!-- 品牌：渐变 logo + STTmini -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <Border Classes="logo" />
+                    <TextBlock Classes="brand" Text="STTmini" VerticalAlignment="Center" />
+                </StackPanel>
+                <!-- 主 CTA：开始转录（放顶栏右排，全局主操作） -->
+                <Button Grid.Column="2" Classes="primary"
+                        Content="开始转录"
+                        Margin="0,0,8,0"
+                        Command="{Binding TranscribeCommand}" />
+                <!-- 设置：齿轮图标按钮 -->
+                <Button Grid.Column="3" Classes="icon-btn"
+                        Content="⚙"
+                        Click="OpenSettings" />
+            </Grid>
+        </Border>
 
-        <!-- 中部：进度 + 结果 -->
-        <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto">
+        <!-- ============ 主卡片（可滚动，适配小窗） ============ -->
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+            <Grid Margin="0,28,0,28">
+                <Border Classes="card">
+                    <StackPanel>
 
-            <!-- 进度区（AGENTS.md §6.3） -->
-            <StackPanel Grid.Row="0" Margin="0,0,0,8" IsVisible="{Binding IsBusy}">
-                <TextBlock Text="{Binding ProgressLabel}" Margin="0,0,0,4" />
-                <ProgressBar Value="{Binding Progress}" Maximum="1" Height="6" />
-            </StackPanel>
+                        <!-- 卡片段 1：输入文件（支持拖放，AGENTS.md §6.2） -->
+                        <Border Classes="card-section"
+                                DragDrop.AllowDrop="True"
+                                DragDrop.DragOver="OnDragOver"
+                                DragDrop.Drop="OnDrop">
+                            <StackPanel>
+                                <TextBlock Classes="field-label" Text="输入文件" />
+                                <Border Classes="input-pill">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <TextBlock Grid.Column="0" Text="🎬" VerticalAlignment="Center" Margin="0,0,12,0" />
+                                        <TextBox Grid.Column="1"
+                                                 Text="{Binding InputFilePath}"
+                                                 IsReadOnly="True"
+                                                 PlaceholderText="尚未选择文件（可拖入或点击下方更换）"
+                                                 Background="Transparent"
+                                                 BorderThickness="0"
+                                                 VerticalContentAlignment="Center" />
+                                        <Button Grid.Column="2" Classes="text-link"
+                                                Content="更换…"
+                                                Margin="12,0,0,0"
+                                                Command="{Binding PickInputFileCommand}" />
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                        </Border>
 
-            <!-- 结果区 -->
-            <TextBox Grid.Row="1"
-                     Text="{Binding OutputText}"
-                     AcceptsReturn="True"
-                     IsReadOnly="True"
-                     FontFamily="Cascadia Code,Consolas,Menlo,monospace"
-                     FontSize="14"
-                     PlaceholderText="转录结果将显示在此处" />
-        </Grid>
+                        <!-- 卡片段 2：进度（仅忙碌时可见，AGENTS.md §6.3） -->
+                        <Border Classes="card-section" IsVisible="{Binding IsBusy}">
+                            <StackPanel>
+                                <TextBlock Classes="field-label" Text="{Binding ProgressLabel}" />
+                                <ProgressBar Classes="card-bar"
+                                             Value="{Binding Progress}"
+                                             Maximum="1" />
+                            </StackPanel>
+                        </Border>
 
-        <!-- 底部：状态 + 输出格式 + 保存 + 设置 -->
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,12,0,0">
-            <TextBlock Grid.Column="0"
-                       Text="{Binding StatusMessage}"
-                       VerticalAlignment="Center"
-                       TextTrimming="CharacterEllipsis" />
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
-                <TextBlock Text="格式：" VerticalAlignment="Center" Margin="0,0,4,0" />
-                <ComboBox SelectedItem="{Binding OutputFormat}"
-                          ItemsSource="{x:Static config:OutputFormats.All}"
-                          MinWidth="100">
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate x:DataType="config:OutputFormat">
-                            <TextBlock Text="{Binding Converter={x:Static cvt:OutputFormatNameConverter.Instance}}" />
-                        </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
-            </StackPanel>
-            <Button Grid.Column="2" Content="保存结果…" Margin="0,0,8,0"
-                    Command="{Binding SaveCommand}" />
-            <Button Grid.Column="3" Content="设置…" Click="OpenSettings" />
-        </Grid>
+                        <!-- 卡片段 3：转录结果（AGENTS.md §6.3 实时填充） -->
+                        <Border Classes="card-section">
+                            <StackPanel>
+                                <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,14">
+                                    <TextBlock Grid.Column="0" Classes="field-label"
+                                               Text="转录结果" Margin="0" />
+                                    <!-- 输出格式：ComboBox 保持现有 OutputFormat 双向绑定 -->
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                        <TextBlock Text="格式" FontSize="12"
+                                                   Foreground="{StaticResource TextMutedBrush}"
+                                                   VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <ComboBox SelectedItem="{Binding OutputFormat}"
+                                                  ItemsSource="{x:Static config:OutputFormats.All}"
+                                                  MinWidth="120">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate x:DataType="config:OutputFormat">
+                                                    <TextBlock Text="{Binding Converter={x:Static cvt:OutputFormatNameConverter.Instance}}" />
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                    </StackPanel>
+                                </Grid>
+                                <Border Classes="result-panel">
+                                    <TextBox Classes="result-text"
+                                             Text="{Binding OutputText}"
+                                             PlaceholderText="转录结果将显示在此处"
+                                             MinHeight="200" />
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 卡片底：操作条（状态 + 取消 + 保存） -->
+                        <Border Classes="action-bar">
+                            <Grid ColumnDefinitions="*,Auto,Auto">
+                                <TextBlock Grid.Column="0" Classes="status-text"
+                                           Text="{Binding StatusMessage}"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                                <Button Grid.Column="1" Classes="danger"
+                                        Content="取消"
+                                        Margin="0,0,10,0"
+                                        Command="{Binding CancelCommand}" />
+                                <Button Grid.Column="2" Classes="primary"
+                                        Content="保存结果…"
+                                        Command="{Binding SaveCommand}" />
+                            </Grid>
+                        </Border>
+
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </ScrollViewer>
     </Grid>
 </Window>

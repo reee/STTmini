@@ -1,0 +1,215 @@
+<!--
+  AppTheme.axaml — STTmini 集中式样式层（B 方案：卡片现代 / Linear-Notion 风）。
+  来源：prototype/ui-redesign/styles.css 变体 B 的 token 翻译为 Avalonia class 选择器。
+  用法：控件加 Classes="card" / "primary" / "input-pill" 等即套用；App.axaml 用 StyleInclude 合并。
+  设计语言：浅灰底 + 白卡片 + 柔阴影 + 靛蓝强调（#5B5BD6），大圆角（14/9/8）。
+-->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- ============ 颜色资源（B 方案 token，已合并近重复色） ============
+       Mini 取舍：表面/边框各只留一个语义名，不做 #EBEDF0/#F0F1F3/#E1E2E6 这种
+       肉眼难辨的细分（原型的三层灰在桌面缩放下无意义）。 -->
+  <Styles.Resources>
+    <SolidColorBrush x:Key="PageBackgroundBrush" Color="#F4F5F7" />
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="PrimaryBrush" Color="#5B5BD6" />
+    <SolidColorBrush x:Key="PrimaryHoverBrush" Color="#4A4AC8" />
+    <SolidColorBrush x:Key="DangerBrush" Color="#E5484D" />
+    <SolidColorBrush x:Key="BorderBrush" Color="#EBEDF0" />
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#1F2329" />
+    <SolidColorBrush x:Key="TextMutedBrush" Color="#646A73" />
+    <SolidColorBrush x:Key="TextStatusBrush" Color="#8A8F94" />
+    <SolidColorBrush x:Key="InputFillBrush" Color="#F7F8FA" />
+    <SolidColorBrush x:Key="ResultFillBrush" Color="#FAFBFC" />
+    <SolidColorBrush x:Key="ProgressBarTrackBrush" Color="#EEF0F3" />
+  </Styles.Resources>
+
+  <!-- ============ Window 基底（Inter 字体由 Program.cs .WithInterFont() 设置） ============ -->
+  <Style Selector="Window">
+    <Setter Property="Background" Value="{StaticResource PageBackgroundBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+    <Setter Property="FontSize" Value="14" />
+  </Style>
+
+  <!-- ============ 顶部应用栏 ============ -->
+  <Style Selector="Border.appbar">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="Padding" Value="28,14" />
+  </Style>
+
+  <!-- ============ 主卡片（白底 + 大圆角 + 双层柔阴影） ============ -->
+  <Style Selector="Border.card">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="BoxShadow" Value="0 1 3 0 rgba(15,23,42,0.04), 0 8 24 0 rgba(15,23,42,0.06)" />
+    <Setter Property="Margin" Value="28,0" />
+  </Style>
+
+  <!-- 卡片内分段（细底分割线，最后一段无线） -->
+  <Style Selector="Border.card-section">
+    <Setter Property="Padding" Value="28,22" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+  </Style>
+  <Style Selector="Border.card-section:last-child">
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+
+  <!-- ============ 文件输入胶囊 ============ -->
+  <Style Selector="Border.input-pill">
+    <Setter Property="Background" Value="{StaticResource InputFillBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="9" />
+    <Setter Property="Padding" Value="14,12" />
+  </Style>
+
+  <!-- ============ 结果区面板 ============ -->
+  <Style Selector="Border.result-panel">
+    <Setter Property="Background" Value="{StaticResource ResultFillBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="9" />
+    <Setter Property="Padding" Value="16" />
+  </Style>
+
+  <!-- ============ 操作条（卡片底） ============ -->
+  <Style Selector="Border.action-bar">
+    <Setter Property="Background" Value="{StaticResource ResultFillBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="0,1,0,0" />
+    <Setter Property="Padding" Value="28,16" />
+  </Style>
+
+  <!-- ============ 按钮 ============ -->
+  <!-- 次按钮：白底 + 边框 -->
+  <Style Selector="Button.btn">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="16,9" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+  <Style Selector="Button.btn:pointerover">
+    <Setter Property="Background" Value="{StaticResource PageBackgroundBrush}" />
+  </Style>
+
+  <!-- 主按钮：靛蓝 #5B5BD6 -->
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{StaticResource PrimaryBrush}" />
+    <Setter Property="Foreground" Value="White" />
+    <Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="16,9" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+  <Style Selector="Button.primary:pointerover">
+    <Setter Property="Background" Value="{StaticResource PrimaryHoverBrush}" />
+  </Style>
+
+  <!-- 危险按钮：红字 -->
+  <Style Selector="Button.danger">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="16,9" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+  <Style Selector="Button.danger:pointerover">
+    <Setter Property="Background" Value="{StaticResource PageBackgroundBrush}" />
+  </Style>
+
+  <!-- 图标按钮（设置齿轮）：32×32 + 圆角 -->
+  <Style Selector="Button.icon-btn">
+    <Setter Property="Width" Value="32" />
+    <Setter Property="Height" Value="32" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.icon-btn:pointerover">
+    <Setter Property="Background" Value="{StaticResource PageBackgroundBrush}" />
+  </Style>
+
+  <!-- 文字按钮（链接样式，如"更换…"） -->
+  <Style Selector="Button.text-link">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+  <Style Selector="Button.text-link:pointerover">
+    <Setter Property="Foreground" Value="{StaticResource PrimaryHoverBrush}" />
+  </Style>
+
+  <!-- ============ 文本块 ============ -->
+  <Style Selector="TextBlock.field-label">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Margin" Value="0,0,0,10" />
+  </Style>
+
+  <Style Selector="TextBlock.status-text">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{StaticResource TextStatusBrush}" />
+  </Style>
+
+  <Style Selector="TextBlock.brand">
+    <Setter Property="FontWeight" Value="Bold" />
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+  </Style>
+
+  <!-- ============ 进度条 ============ -->
+  <Style Selector="ProgressBar.card-bar">
+    <Setter Property="Height" Value="6" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
+    <Setter Property="Background" Value="{StaticResource ProgressBarTrackBrush}" />
+  </Style>
+
+  <!-- ============ 结果文本（等宽） ============ -->
+  <Style Selector="TextBox.result-text">
+    <Setter Property="FontFamily" Value="Cascadia Code,Consolas,Menlo,monospace" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="AcceptsReturn" Value="True" />
+    <Setter Property="IsReadOnly" Value="True" />
+  </Style>
+
+  <!-- ============ Logo 方块（渐变，无图片资源） ============ -->
+  <Style Selector="Border.logo">
+    <Setter Property="Width" Value="24" />
+    <Setter Property="Height" Value="24" />
+    <Setter Property="CornerRadius" Value="7" />
+    <Setter Property="Background">
+      <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+        <GradientStop Offset="0" Color="#5B5BD6" />
+        <GradientStop Offset="1" Color="#8B5CF6" />
+      </LinearGradientBrush>
+    </Setter>
+  </Style>
+
+</Styles>
