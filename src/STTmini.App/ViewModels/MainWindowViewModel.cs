@@ -49,6 +49,9 @@ public partial class MainWindowViewModel : ViewModelBase
         _settingsStore = settingsStore;
         SettingsPage = settingsPage;
         _logger = logger;
+
+        // 启动即检测 ffmpeg：不可用时 CTA 灰显 + StatusMessage 写提示，用户一眼知道下一步。
+        RefreshFfmpegStatus();
     }
 
     /// <summary>输入文件路径（只读显示）。</summary>
@@ -70,7 +73,6 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>是否正在转录。</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(TranscribeCommand))]
-    [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
     [NotifyCanExecuteChangedFor(nameof(SaveTextCommand))]
     [NotifyCanExecuteChangedFor(nameof(SaveSubtitleCommand))]
     private bool _isBusy;
@@ -78,6 +80,54 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>错误/提示消息。</summary>
     [ObservableProperty]
     private string _statusMessage = string.Empty;
+
+    /// <summary>ffmpeg 检测后的实际解析路径（空 = 未找到）。状态变化时联动刷新 CTA 可用态。</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(TranscribeCommand))]
+    private string _ffmpegResolvedPath = string.Empty;
+
+    /// <summary>ffmpeg 是否可用（解析路径非空）。CTA 禁用态的判据之一。</summary>
+    public bool IsFfmpegAvailable => !string.IsNullOrEmpty(FfmpegResolvedPath);
+
+    /// <summary>ffmpeg 不可用时写进 StatusMessage 的空闲态提示。</summary>
+    private const string FfmpegMissingHint = "未检测到 ffmpeg，点右上角 ⚙ 设置路径";
+
+    /// <summary>FfmpegResolvedPath 变化时，派生属性 IsFfmpegAvailable 也要通知绑定刷新。</summary>
+    partial void OnFfmpegResolvedPathChanged(string value)
+        => OnPropertyChanged(nameof(IsFfmpegAvailable));
+
+    /// <summary>
+    /// 重新检测 ffmpeg 可用性（PATH 或 Settings 覆盖路径）。
+    /// 设置弹窗关闭后由 view 层调用——Settings 是 DI 单例，此时已拿到最新 FfmpegPathOverride。
+    /// 走 <see cref="FfmpegLocator.TryResolve"/> 不抛版，缺 ffmpeg 只置空状态 + 提示，
+    /// 转录入口靠 CanTranscribe 兜住。
+    /// </summary>
+    public void RefreshFfmpegStatus()
+    {
+        FfmpegResolvedPath = FfmpegLocator.TryResolve(_settings.FfmpegPathOverride).Path ?? string.Empty;
+        UpdateIdleStatusHint();
+    }
+
+    /// <summary>
+    /// 按 ffmpeg 可用性刷新空闲态提示：不可用 → 写阻碍提示；
+    /// 可用且当前正显示该提示 → 清掉（转录中/完成态的不动）。
+    /// </summary>
+    private void UpdateIdleStatusHint()
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        if (!IsFfmpegAvailable)
+        {
+            StatusMessage = FfmpegMissingHint;
+        }
+        else if (StatusMessage == FfmpegMissingHint)
+        {
+            StatusMessage = string.Empty;
+        }
+    }
 
     /// <summary>设置页 VM（嵌入主窗口的设置区）。</summary>
     public SettingsViewModel SettingsPage { get; }
@@ -121,7 +171,8 @@ public partial class MainWindowViewModel : ViewModelBase
         OutputText = string.Empty;
         _lastSegments = null;
         StatusMessage = string.Empty;
-        // 清空结果后刷新保存按钮的可用态（否则上一轮的段数据会让按钮残留启用）。
+        // 刷新各按钮可用态：选了文件 → 转录可用；清了结果 → 保存按钮按 CanSave 重算。
+        TranscribeCommand.NotifyCanExecuteChanged();
         SaveTextCommand.NotifyCanExecuteChanged();
         SaveSubtitleCommand.NotifyCanExecuteChanged();
     }
@@ -192,17 +243,8 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private bool CanTranscribe() => !IsBusy;
-
-    /// <summary>取消转录（段边界生效，AGENTS.md §6.4）。</summary>
-    [RelayCommand(CanExecute = nameof(CanCancel))]
-    private void Cancel()
-    {
-        _cts?.Cancel();
-        StatusMessage = "正在取消…";
-    }
-
-    private bool CanCancel() => IsBusy && _cts is not null;
+    /// <summary>可转录：非忙碌、已选输入文件、且 ffmpeg 可用。三个前置条件任一不满足 CTA 灰显（§6.6）。</summary>
+    private bool CanTranscribe() => !IsBusy && !string.IsNullOrEmpty(_inputPath) && IsFfmpegAvailable;
 
     /// <summary>保存纯文本（.txt）。AGENTS.md §6.2：两种格式都从同一份段数据即时格式化。</summary>
     [RelayCommand(CanExecute = nameof(CanSave))]

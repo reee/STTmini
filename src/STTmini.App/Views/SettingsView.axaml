@@ -4,12 +4,13 @@
         x:Class="STTmini.App.Views.SettingsView"
         x:DataType="vm:SettingsViewModel"
         Title="设置"
-        Width="600" Height="520"
+        Width="600" Height="390"
         CanResize="False"
         WindowStartupLocation="CenterOwner">
 
     <!--
-      设置弹窗，套用主窗的样式系统（B 方案）：顶部应用栏 + 单张卡片（三段）+ 卡片底操作条。
+      设置弹窗，套用主窗的样式系统（B 方案）：顶部应用栏 + 单张卡片（一段）+ 卡片底操作条。
+      设置项收敛后只剩 ffmpeg 路径一段，弹窗高度从早期 520 压到 390、去外层 ScrollViewer（§6.6）。
       所有绑定原样保留（AGENTS.md §6.5 / §11.1）。
     -->
     <Grid RowDefinitions="Auto,*">
@@ -27,57 +28,52 @@
             </Grid>
         </Border>
 
-        <!-- ============ 主卡片 ============ -->
-        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
-            <Grid Margin="0,28,0,28">
-                <Border Classes="card">
-                    <StackPanel>
+        <!-- ============ 主卡片（单段，无 ScrollViewer） ============ -->
+        <Grid Grid.Row="1" Margin="0,28,0,28">
+            <Border Classes="card">
+                <Grid RowDefinitions="*,Auto">
 
-                        <!-- 卡片段 1：ffmpeg 路径（AGENTS.md §6.5 / §11.1） -->
-                        <Border Classes="card-section">
-                            <StackPanel>
-                                <TextBlock Classes="field-label" Text="ffmpeg 路径" />
-                                <TextBlock FontSize="12"
-                                           Foreground="{StaticResource TextMutedBrush}"
-                                           Margin="0,0,0,8"
-                                           TextWrapping="Wrap"
-                                           Text="留空则自动检测系统 PATH；可手动指定 ffmpeg 可执行文件或其所在目录。" />
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBox Grid.Column="0"
-                                             Text="{Binding FfmpegPathOverride}"
-                                             PlaceholderText="例如 /usr/bin/ffmpeg 或 C:\tools\ffmpeg.exe" />
-                                    <Button Grid.Column="1" Classes="btn"
-                                            Content="重新检测"
-                                            Margin="8,0,0,0"
-                                            Command="{Binding RefreshFfmpegStatusCommand}" />
-                                </Grid>
-                                <TextBlock Classes="status-text"
-                                           Text="{Binding FfmpegStatusText}"
-                                           Margin="0,8,0,0"
-                                           TextWrapping="Wrap" />
-                            </StackPanel>
-                        </Border>
-
-                        <!-- 卡片段 2：默认输出格式已移除——转录结果同时持有纯文本与 SRT，
-                             由主窗的「保存文本 / 保存字幕」分别导出（AGENTS.md §6.2 / §6.5）。 -->
-
-                        <!-- 卡片底：操作条 -->
-                        <Border Classes="action-bar">
-                            <Grid ColumnDefinitions="*,Auto,Auto">
+                    <!-- 卡片段：ffmpeg 路径（AGENTS.md §6.5 / §11.1） -->
+                    <Border Grid.Row="0" Classes="card-section">
+                        <StackPanel>
+                            <TextBlock Classes="field-label" Text="ffmpeg 路径" />
+                            <TextBlock FontSize="12"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       Margin="0,0,0,8"
+                                       TextWrapping="Wrap"
+                                       Text="留空则自动检测系统 PATH；可手动指定 ffmpeg 可执行文件或其所在目录。" />
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding FfmpegPathOverride}"
+                                         PlaceholderText="例如 /usr/bin/ffmpeg 或 C:\tools\ffmpeg.exe" />
                                 <Button Grid.Column="1" Classes="btn"
-                                        Content="关闭"
-                                        Margin="0,0,10,0"
-                                        Click="CloseOnClick" />
-                                <Button Grid.Column="2" Classes="primary"
-                                        Content="保存"
-                                        Command="{Binding SaveCommand}"
-                                        Click="CloseOnClick" />
+                                        Content="重新检测"
+                                        Margin="8,0,0,0"
+                                        Command="{Binding RefreshFfmpegStatusCommand}" />
                             </Grid>
-                        </Border>
+                            <TextBlock Classes="status-text"
+                                       Text="{Binding FfmpegStatusText}"
+                                       Margin="0,8,0,0"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
 
-                    </StackPanel>
-                </Border>
-            </Grid>
-        </ScrollViewer>
+                    <!-- 卡片底：操作条 -->
+                    <Border Grid.Row="1" Classes="action-bar">
+                        <Grid ColumnDefinitions="*,Auto,Auto">
+                            <Button Grid.Column="1" Classes="btn"
+                                    Content="关闭"
+                                    Margin="0,0,10,0"
+                                    Click="CloseOnClick" />
+                            <Button Grid.Column="2" Classes="primary"
+                                    Content="保存"
+                                    Command="{Binding SaveCommand}"
+                                    Click="CloseOnClick" />
+                        </Grid>
+                    </Border>
+
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

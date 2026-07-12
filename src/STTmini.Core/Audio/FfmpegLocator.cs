@@ -15,6 +15,7 @@ public static class FfmpegLocator
 
     /// <summary>
     /// 解析 ffmpeg 可执行文件路径。找不到抛 <see cref="FfmpegNotFoundException"/>。
+    /// 转录管线（<c>FfmpegAudioExtractor</c>）走这条——缺 ffmpeg 是硬错误，应中断。
     /// </summary>
     public static string Resolve(string? ffmpegPathOverride)
     {
@@ -37,6 +38,33 @@ public static class FfmpegLocator
 
         throw new FfmpegNotFoundException(
             "未找到 ffmpeg。请在 Settings 中配置 ffmpeg 路径，或将其加入系统 PATH。");
+    }
+
+    /// <summary>
+    /// 不抛版的 ffmpeg 解析：UI 层用来刷新「CTA 是否可用 / 状态提示」——缺 ffmpeg 不是硬错误，
+    /// 只是禁用转录入口。调用方无需 try/catch，避免两处 ViewModel 各写一份相同的吞异常逻辑。
+    /// </summary>
+    /// <returns>解析结果：<see cref="FfmpegResolution.IsFound"/> 为 true 时 <see cref="FfmpegResolution.Path"/> 非空。</returns>
+    public static FfmpegResolution TryResolve(string? ffmpegPathOverride)
+    {
+        try
+        {
+            return new FfmpegResolution(Resolve(ffmpegPathOverride), Error: null);
+        }
+        catch (FfmpegNotFoundException ex)
+        {
+            return new FfmpegResolution(Path: null, Error: ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// <see cref="TryResolve"/> 的返回类型。解耦「是否找到」与「为什么没找到」：
+    /// <c>IsFound</c> 供 CTA 禁用判断，<c>Error</c> 供设置页状态行展示具体原因。
+    /// </summary>
+    public sealed record FfmpegResolution(string? Path, string? Error)
+    {
+        /// <summary>是否解析到 ffmpeg 路径（<see cref="Path"/> 非空）。</summary>
+        public bool IsFound => !string.IsNullOrEmpty(Path);
     }
 
     private static string? ResolveOverride(string overrideValue)

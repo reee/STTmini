@@ -4,118 +4,136 @@
         x:Class="STTmini.App.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="STTmini — 中文语音转文本"
-        Width="860" Height="640"
-        MinWidth="640" MinHeight="520"
+        Width="860" Height="680"
+        MinWidth="640" MinHeight="580"
         WindowStartupLocation="CenterScreen"
         Icon="avares://STTmini.App/Assets/app.ico">
 
     <!--
-      B 方案布局：顶部应用栏 + 居中单张主卡片（输入/进度/结果 三段）+ 卡片内操作条。
-      所有 ViewModel 绑定与拖放/设置处理器原样保留（AGENTS.md §6.2 / §6.3 / §6.4）。
+      B 方案布局（CTA 内联浏览行版，AGENTS.md §6.6）：
+      无顶部应用栏——单张居中主卡片，卡片内由 Grid 锁骨架（Auto×3 + * + Auto），
+      仅结果文本框内部滚动，action-bar 永远钉在卡片底。
+      开始转录与浏览框同行：浏览→转录是相邻步骤，CTA 紧跟输入框。
+      拖放 AllowDrop 挂在最外层卡片，命中区为整张卡片。
       视觉样式来自 Styles/AppTheme.axaml 的 class 选择器。
     -->
-    <Grid RowDefinitions="Auto,*">
+    <Grid Margin="0,28,0,28">
 
-        <!-- ============ 顶部应用栏 ============ -->
-        <Border Grid.Row="0" Classes="appbar">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-                <!-- 品牌：app icon logo + STTmini -->
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <Image Classes="logo" Source="avares://STTmini.App/Assets/logo.png" />
-                    <TextBlock Classes="brand" Text="STTmini" VerticalAlignment="Center" />
-                </StackPanel>
-                <!-- 主 CTA：开始转录（放顶栏右排，全局主操作） -->
-                <Button Grid.Column="2" Classes="primary"
-                        Content="开始转录"
-                        Margin="0,0,8,0"
-                        Command="{Binding TranscribeCommand}" />
-                <!-- 设置：齿轮图标按钮 -->
-                <Button Grid.Column="3" Classes="icon-btn"
-                        Content="⚙"
-                        Click="OpenSettings" />
-            </Grid>
-        </Border>
+        <!-- ============ 主卡片（整张卡片均为拖放命中区，AGENTS.md §6.2） ============ -->
+        <Border Classes="card"
+                DragDrop.AllowDrop="True"
+                DragDrop.DragOver="OnDragOver"
+                DragDrop.Drop="OnDrop">
+            <!--
+              锁骨架 Grid：header / 输入(+CTA) / 进度 / 结果(*) / 操作条。
+              改用 Grid 而非 StackPanel+ScrollViewer 的原因：结果文本随段数增长时，
+              ScrollViewer 会让卡片整体长高、把底 action-bar 撑出屏幕；Grid 锁骨架后，
+              结果段独占 * 弹性高度、TextBox 内部滚动，action-bar 永远可见（§6.6）。
+            -->
+            <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
 
-        <!-- ============ 主卡片（可滚动，适配小窗） ============ -->
-        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
-            <Grid Margin="0,28,0,28">
-                <Border Classes="card">
+                <!-- ============ R0 卡片 header：品牌 + 设置齿轮 ============ -->
+                <Border Grid.Row="0" Classes="card-header">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <Image Classes="logo" Source="avares://STTmini.App/Assets/logo.png" />
+                            <TextBlock Classes="brand" Text="STTmini" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <Button Grid.Column="2" Classes="icon-btn"
+                                Content="⚙"
+                                Click="OpenSettings" />
+                    </Grid>
+                </Border>
+
+                <!-- ============ R1 输入段：input-pill + 开始转录 同行（浏览→转录相邻步骤，§6.6） ============ -->
+                <Border Grid.Row="1" Classes="card-section">
                     <StackPanel>
-
-                        <!-- 卡片段 1：输入文件（支持拖放，AGENTS.md §6.2） -->
-                        <Border Classes="card-section"
-                                DragDrop.AllowDrop="True"
-                                DragDrop.DragOver="OnDragOver"
-                                DragDrop.Drop="OnDrop">
-                            <StackPanel>
-                                <TextBlock Classes="field-label" Text="输入文件" />
-                                <Border Classes="input-pill">
-                                    <Grid ColumnDefinitions="Auto,*,Auto">
-                                        <TextBlock Grid.Column="0" Text="🎬" VerticalAlignment="Center" Margin="0,0,12,0" />
-                                        <TextBox Grid.Column="1"
-                                                 Text="{Binding InputFilePath}"
-                                                 IsReadOnly="True"
-                                                 PlaceholderText="尚未选择文件（可拖入或点击下方更换）"
-                                                 Background="Transparent"
-                                                 BorderThickness="0"
-                                                 VerticalContentAlignment="Center" />
-                                        <Button Grid.Column="2" Classes="text-link"
-                                                Content="浏览…"
-                                                Margin="12,0,0,0"
-                                                Command="{Binding PickInputFileCommand}" />
-                                    </Grid>
-                                </Border>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- 卡片段 2：进度（仅忙碌时可见，AGENTS.md §6.3） -->
-                        <Border Classes="card-section" IsVisible="{Binding IsBusy}">
-                            <StackPanel>
-                                <TextBlock Classes="field-label" Text="{Binding ProgressLabel}" />
-                                <ProgressBar Classes="card-bar"
-                                             Value="{Binding Progress}"
-                                             Maximum="1" />
-                            </StackPanel>
-                        </Border>
-
-                        <!-- 卡片段 3：转录结果（AGENTS.md §6.3 实时填充）。
-                             结果区固定展示纯文本预览；SRT 通过下方「保存字幕」按钮写出。 -->
-                        <Border Classes="card-section">
-                            <StackPanel>
-                                <TextBlock Classes="field-label" Text="转录结果（纯文本预览）" Margin="0,0,0,14" />
-                                <Border Classes="result-panel">
-                                    <TextBox Classes="result-text"
-                                             Text="{Binding OutputText}"
-                                             PlaceholderText="转录结果将显示在此处"
-                                             MinHeight="200" />
-                                </Border>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- 卡片底：操作条（状态 + 取消 + 保存文本 + 保存字幕） -->
-                        <Border Classes="action-bar">
-                            <Grid ColumnDefinitions="*,Auto,Auto,Auto">
-                                <TextBlock Grid.Column="0" Classes="status-text"
-                                           Text="{Binding StatusMessage}"
-                                           VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis" />
-                                <Button Grid.Column="1" Classes="danger"
-                                        Content="取消"
-                                        Margin="0,0,10,0"
-                                        Command="{Binding CancelCommand}" />
-                                <Button Grid.Column="2" Classes="btn"
-                                        Content="保存文本…"
-                                        Margin="0,0,10,0"
-                                        Command="{Binding SaveTextCommand}" />
-                                <Button Grid.Column="3" Classes="primary"
-                                        Content="保存字幕…"
-                                        Command="{Binding SaveSubtitleCommand}" />
-                            </Grid>
-                        </Border>
-
+                        <TextBlock Classes="field-label" Text="输入文件" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <Border Grid.Column="0" Classes="input-pill">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <TextBlock Grid.Column="0" Text="🎬" VerticalAlignment="Center" Margin="0,0,12,0" />
+                                    <TextBox Grid.Column="1"
+                                             Text="{Binding InputFilePath}"
+                                             IsReadOnly="True"
+                                             PlaceholderText="尚未选择文件（可拖入或点击下方更换）"
+                                             Background="Transparent"
+                                             BorderThickness="0"
+                                             VerticalContentAlignment="Center" />
+                                    <Button Grid.Column="2" Classes="text-link"
+                                            Content="浏览…"
+                                            Margin="12,0,0,0"
+                                            Command="{Binding PickInputFileCommand}" />
+                                </Grid>
+                            </Border>
+                            <!-- CTA 内联浏览行：Stretch 拉到行高（= pill 高），顶底与输入胶囊对齐。
+                                 按钮内容（TextBlock）比 TextBox 矮，不拉伸就会居中、顶底留白、显得偏矮。 -->
+                            <Button Grid.Column="1" Classes="primary"
+                                    Content="开始转录"
+                                    VerticalAlignment="Stretch"
+                                    VerticalContentAlignment="Center"
+                                    Margin="10,0,0,0"
+                                    Command="{Binding TranscribeCommand}" />
+                        </Grid>
+                        <!-- 空闲态提示：ffmpeg 未检测到时写「下一步」操作要求（§6.6）。
+                             转录过程的进度/完成/错误状态走底部 action-bar 的同名绑定。 -->
+                        <TextBlock Classes="status-text"
+                                   Text="{Binding StatusMessage}"
+                                   Margin="0,10,0,0"
+                                   TextWrapping="Wrap"
+                                   IsVisible="{Binding !IsBusy}" />
                     </StackPanel>
                 </Border>
+
+                <!-- ============ R2 进度段（仅忙碌时可见，Auto 行隐藏即坍缩，AGENTS.md §6.3） ============ -->
+                <Border Grid.Row="2" Classes="card-section" IsVisible="{Binding IsBusy}">
+                    <StackPanel>
+                        <TextBlock Classes="field-label" Text="{Binding ProgressLabel}" />
+                        <ProgressBar Classes="card-bar"
+                                     Value="{Binding Progress}"
+                                     Maximum="1" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ============ R3 结果段（* 行驱动高度，TextBox 内部滚动，AGENTS.md §6.3 实时填充） ============ -->
+                <Border Grid.Row="3" Classes="card-section">
+                    <Grid RowDefinitions="Auto,*">
+                        <TextBlock Grid.Row="0" Classes="field-label" Text="转录结果" Margin="0,0,0,14" />
+                        <Border Grid.Row="1" Classes="result-panel">
+                            <!--
+                              TextBox 内置 ScrollViewer：AcceptsReturn=True + VerticalScrollBarVisibility=Auto
+                              让长结果在文本框内部滚动，而非把卡片整体撑高（§6.6 锁骨架的关键一环）。
+                            -->
+                            <TextBox Classes="result-text"
+                                     Text="{Binding OutputText}"
+                                     PlaceholderText="转录结果将显示在此处"
+                                     AcceptsReturn="True"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- ============ R4 操作条：状态 + 保存文本 + 保存字幕（钉卡片底） ============
+                     取消能力已移除（§6.4）：实测耗时可控，常驻取消按钮空闲态冗余。
+                     status-text 仅转录中可见（IsBusy）——空闲态提示落在 R1 输入段下方，避免双显。 -->
+                <Border Grid.Row="4" Classes="action-bar">
+                    <Grid ColumnDefinitions="*,Auto,Auto">
+                        <TextBlock Grid.Column="0" Classes="status-text"
+                                   Text="{Binding StatusMessage}"
+                                   IsVisible="{Binding IsBusy}"
+                                   VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" />
+                        <Button Grid.Column="1" Classes="btn"
+                                Content="保存文本…"
+                                Margin="0,0,10,0"
+                                Command="{Binding SaveTextCommand}" />
+                        <Button Grid.Column="2" Classes="primary"
+                                Content="保存字幕…"
+                                Command="{Binding SaveSubtitleCommand}" />
+                    </Grid>
+                </Border>
+
             </Grid>
-        </ScrollViewer>
+        </Border>
     </Grid>
 </Window>

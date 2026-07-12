@@ -244,7 +244,7 @@ OfflineRecognizerResult result = stream.Result;
 **单文件**（v1 不做批量）。主流程：
 
 1. 选择输入文件（文件选择对话框 + 拖放，按钮文案「浏览…」）。
-2. 点击转录（进度 + 可取消）。
+2. 点击转录（进度反馈，§6.3）。
 3. 内联查看纯文本预览结果（实时填充）。
 4. 保存为 `.txt`（「保存文本」）或 `.srt`（「保存字幕」）——两种格式从同一份段数据即时格式化，**无需重跑识别**（引擎结果 `TranscriptionResult.Segments` 携带全部段，§5.1）。
 
@@ -260,11 +260,12 @@ OfflineRecognizerResult result = stream.Result;
 
 ASR 阶段每完成一段即通过 `IProgress<T>` 推送一次，结果面板**实时填充**（不等全部完成）。
 
-### 6.4 取消
+### 6.4 取消（v1 已移除）
 
-- 取消按钮在转录中可用。
-- 取消粒度：**段边界**（当前段识别完成后停止，不中断段内识别）。
-- 取消后已识别的段可保留显示。
+- **取消能力已移除**：取消按钮、`CancelCommand`、`CanCancel` 均删除。
+- 取舍依据：实测短/中长内容转录耗时可控（CPU int8 paraformer），且 action-bar 常驻取消按钮在空闲态造成视觉冗余。移除换简洁。
+- 流水线内部仍保留 `CancellationTokenSource` 管线（`TranscribeAsync` 内 `new CancellationTokenSource()` + `_cts.Token` 传给 engine + `_cts.Dispose()`）——这是 §7 线程模型的合理基建，与 UI 取消能力解耦；未来若长视频场景需要恢复取消，只重建 UI 命令即可。
+- 早期版本：取消按钮转录中可用，段边界粒度（当前段识别完成后停止），取消后已识别段保留显示。
 
 ### 6.5 Settings 页
 
@@ -280,9 +281,15 @@ ASR 阶段每完成一段即通过 `IProgress<T>` 推送一次，结果面板**�
 主窗与设置弹窗采用统一的**卡片现代风**（Linear/Notion 系），由集中式样式层 `Styles/AppTheme.axaml` 定义：
 
 - **配色**：浅灰页面底（`#F4F5F7`）+ 白卡片 + 柔阴影；靛蓝强调色（`#5B5BD6`）用于主按钮/进度条/链接。
-- **结构**：顶部应用栏（品牌 logo + 主 CTA）+ 单张居中主卡片（内分输入/进度/结果三段）+ 卡片底操作条。
-- **样式机制**：Avalonia 12 class 选择器（`Classes="card"` / `"primary"` / `"input-pill"` 等）。`App.axaml` 的 `Application.Styles` 里**必须先放 `<FluentTheme />`，再 `<StyleInclude>` 本主题**——`AppTheme` 只定义 class 选择器覆盖，控件模板（ComboBox 弹出、TextBox 文字呈现等）全靠 FluentTheme 提供；漏掉 FluentTheme 会导致 ComboBox 点不开下拉、TextBox 渲染空白。`AppTheme.axaml` 以 `AvaloniaResource` 打包进 `.csproj`。
-- **logo**：顶栏 STTmini 前的 24×24 图标 = 真实 app icon，以 `Assets/logo.png` 加载（`<Image Source="avares://STTmini.App/Assets/logo.png" />`，样式 `Image.logo`）。早期用纯 AXAML 渐变方块占位，现已替换。PNG 走 Avalonia `<Image>` 解码路径（比 ICO 稳），与 app icon 同源（同由 `scripts/generate_icon.py` 渲染）。
+- **结构（主窗）**：**无顶部应用栏**——单张居中主卡片，卡片内由 `Grid RowDefinitions="Auto,Auto,Auto,*,Auto"` 锁骨架（**不**再用 StackPanel + 外层 ScrollViewer，否则结果文本会把底 action-bar 撑出屏幕）：
+  - R0 卡片 header 行：左 logo + STTmini 小标题，右设置齿轮 `Button.icon-btn`（`OpenSettings`）。早期版本有独立顶栏 appbar 承载主 CTA；CTA 移入卡片后 appbar 失去存在理由已移除。
+  - R1 输入段（`card-section`）：input-pill + 浏览 + **开始转录 CTA 同行**（浏览→转录是相邻步骤，CTA 紧跟输入框；CTA 禁用判据 `CanTranscribe => !IsBusy && _inputPath 非空 && IsFfmpegAvailable`，三前置条件任一不满足即灰显）。ffmpeg 不可用时输入段下方显示「未检测到 ffmpeg，点右上角 ⚙ 设置路径」。**支持拖放——`DragDrop.AllowDrop` 挂在最外层卡片上而非 input-pill**，命中区扩大到整张卡片。
+  - R2 进度段（`card-section`，`IsVisible={IsBusy}`，Auto 行隐藏即坍缩）。
+  - R3 结果段（`card-section`，`*` 行驱动高度）：result-panel 内 `TextBox.result-text` 加 `ScrollViewer.VerticalScrollBarVisibility="Auto"`——**仅文本框内部滚动**，action-bar 永远钉在卡片底。这是「保持 App 高度不变」的关键：骨架锁高 + 内容区独占弹性。
+  - R4 action-bar（状态 + 保存文本 + 保存字幕）。取消能力已移除（§6.4）。
+- **结构（设置弹窗）**：单卡片段（仅 ffmpeg 路径，§6.5）。弹窗高 ~390px、`CanResize=False`、**无外层 ScrollViewer**（只剩一段不需要滚）。早期为「三段内容」设计的高弹窗（520px）在设置项收敛后留有大量空白，已压低高度。仍保留 appbar + 单卡片 + action-bar 的视觉骨架以与主窗统一。
+- **样式机制**：Avalonia 12 class 选择器（`Classes="card"` / `"card-header"` / `"primary"` / `"input-pill"` 等）。`App.axaml` 的 `Application.Styles` 里**必须先放 `<FluentTheme />`，再 `<StyleInclude>` 本主题**——`AppTheme` 只定义 class 选择器覆盖，控件模板（ComboBox 弹出、TextBox 文字呈现等）全靠 FluentTheme 提供；漏掉 FluentTheme 会导致 ComboBox 点不开下拉、TextBox 渲染空白。`AppTheme.axaml` 以 `AvaloniaResource` 打包进 `.csproj`。
+- **logo**：卡片 header 行 STTmini 前的 24×24 图标 = 真实 app icon，以 `Assets/logo.png` 加载（`<Image Source="avares://STTmini.App/Assets/logo.png" />`，样式 `Image.logo`）。早期用纯 AXAML 渐变方块占位，现已替换。PNG 走 Avalonia `<Image>` 解码路径（比 ICO 稳），与 app icon 同源（同由 `scripts/generate_icon.py` 渲染）。
 - **应用图标**（`src/STTmini.App/Assets/app.ico`，7 档多分辨率 16/24/32/48/64/128/256）：蓝盘（`#4285F4`）+ 白色播放三角 + 6 条字幕条的"语音→字幕"隐喻图。三角形与字幕条整体以 0.88 缩放因子绕盘心收缩，保持居中。两处使用同一文件：
   - `.csproj` 的 `<ApplicationIcon>` → 嵌入 exe 的 Win32 `RT_ICON` 资源（Explorer / 任务栏 / Alt+Tab / 发布包图标显示）。
   - `<AvaloniaResource Include="Assets\app.ico" />` → 作为 `avares://STTmini.App/Assets/app.ico` 资源，供 `MainWindow` 的 `Icon` 属性加载（窗口左上角图标）。

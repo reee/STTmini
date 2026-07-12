@@ -52,21 +52,17 @@ public partial class SettingsViewModel : ViewModelBase
 
     partial void OnFfmpegPathOverrideChanged(string value) => RefreshFfmpegStatus();
 
-    /// <summary>立即重新检测 ffmpeg。</summary>
+    /// <summary>立即重新检测 ffmpeg。走不抛版 <see cref="FfmpegLocator.TryResolve"/>，错误信息从结果取。</summary>
     [RelayCommand]
     public void RefreshFfmpegStatus()
     {
         var overrideValue = string.IsNullOrWhiteSpace(FfmpegPathOverride) ? null : FfmpegPathOverride.Trim();
-        try
-        {
-            FfmpegResolvedPath = FfmpegLocator.Resolve(overrideValue);
-            FfmpegStatusText = $"✓ 已找到：{FfmpegResolvedPath}";
-        }
-        catch (Exception ex)
-        {
-            FfmpegResolvedPath = string.Empty;
-            FfmpegStatusText = $"✗ {ex.Message}";
-        }
+        var resolution = FfmpegLocator.TryResolve(overrideValue);
+
+        FfmpegResolvedPath = resolution.Path ?? string.Empty;
+        FfmpegStatusText = resolution.IsFound
+            ? $"✓ 已找到：{FfmpegResolvedPath}"
+            : $"✗ {resolution.Error}";
 
         OnPropertyChanged(nameof(IsFfmpegAvailable));
     }

@@ -29,13 +29,19 @@ public partial class MainWindow : Window
         AvaloniaXamlLoader.Load(this);
     }
 
-    /// <summary>打开设置窗口。</summary>
-    private void OpenSettings(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    /// <summary>打开设置窗口。关闭后刷新 ffmpeg 检测——用户可能刚改了 ffmpeg 路径（§6.6）。</summary>
+    private async void OpenSettings(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var app = (App)Application.Current!;
         var settingsVm = app.Services.GetRequiredService<SettingsViewModel>();
         var view = new SettingsView { DataContext = settingsVm };
-        view.ShowDialog(this);
+        await view.ShowDialog(this);
+
+        // 设置弹窗关闭后：Settings 单例已拿到最新 FfmpegPathOverride，重检并刷新 CTA + 提示。
+        if (DataContext is MainWindowViewModel vm)
+        {
+            vm.RefreshFfmpegStatus();
+        }
     }
 
     /// <summary>拖放悬停：仅当携带文件时允许 Copy（AGENTS.md §6.2 拖放）。</summary>

@@ -48,6 +48,14 @@
     <Setter Property="Margin" Value="28,0" />
   </Style>
 
+  <!-- 卡片 header 行（logo + 品牌 + 齿轮）：与 card-section 同语言，但语义是卡片标题行（§6.6）。
+       appbar 移除后，品牌与设置入口落脚于此。 -->
+  <Style Selector="Border.card-header">
+    <Setter Property="Padding" Value="28,16" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+  </Style>
+
   <!-- 卡片内分段（细底分割线，最后一段无线） -->
   <Style Selector="Border.card-section">
     <Setter Property="Padding" Value="28,22" />
@@ -58,13 +66,15 @@
     <Setter Property="BorderThickness" Value="0" />
   </Style>
 
-  <!-- ============ 文件输入胶囊 ============ -->
+  <!-- ============ 文件输入胶囊 ============
+       Padding 14,9 与同行 primary 按钮（Padding 16,9）垂直对齐；
+       早期 14,12 让胶囊偏高、与 CTA 不齐。 -->
   <Style Selector="Border.input-pill">
     <Setter Property="Background" Value="{StaticResource InputFillBrush}" />
     <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="9" />
-    <Setter Property="Padding" Value="14,12" />
+    <Setter Property="Padding" Value="14,9" />
   </Style>
 
   <!-- ============ 结果区面板 ============ -->
