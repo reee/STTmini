@@ -281,6 +281,10 @@ ASR 阶段每完成一段即通过 `IProgress<T>` 推送一次，结果面板**�
 - **结构**：顶部应用栏（品牌 logo + 主 CTA）+ 单张居中主卡片（内分输入/进度/结果三段）+ 卡片底操作条。
 - **样式机制**：Avalonia 12 class 选择器（`Classes="card"` / `"primary"` / `"input-pill"` 等）。`App.axaml` 的 `Application.Styles` 里**必须先放 `<FluentTheme />`，再 `<StyleInclude>` 本主题**——`AppTheme` 只定义 class 选择器覆盖，控件模板（ComboBox 弹出、TextBox 文字呈现等）全靠 FluentTheme 提供；漏掉 FluentTheme 会导致 ComboBox 点不开下拉、TextBox 渲染空白。`AppTheme.axaml` 以 `AvaloniaResource` 打包进 `.csproj`。
 - **logo**：纯 AXAML `LinearGradientBrush`（`#5B5BD6`→`#8B5CF6`），不打包图片资源。
+- **应用图标**（`src/STTmini.App/Assets/app.ico`，7 档多分辨率 16/24/32/48/64/128/256）：蓝盘（`#4285F4`）+ 白色播放三角 + 6 条字幕条的"语音→字幕"隐喻图。两处使用同一文件：
+  - `.csproj` 的 `<ApplicationIcon>` → 嵌入 exe 的 Win32 `RT_ICON` 资源（Explorer / 任务栏 / Alt+Tab / 发布包图标显示）。
+  - `<AvaloniaResource Include="Assets\app.ico" />` → 作为 `avares://STTmini.App/Assets/app.ico` 资源，供 `MainWindow` 的 `Icon` 属性加载（窗口左上角图标）。
+  - 源图由 `scripts/generate_icon.py` 用 Pillow（4× 超采样 + LANCZOS 降采样）按几何重渲染生成，无需 cairo/svg 原生依赖；设计改动后重跑该脚本即可。`Assets/` 下的 `.ico` 为生成产物，进 Git 以便无 Python 环境也能构建。
 - 视觉来源：`prototype/ui-redesign/`（throwaway HTML 原型，变体 B 胜出，A 极简/C 深色落选）。
 
 ---
@@ -520,6 +524,7 @@ v1 维持 Paraformer-zh int8。
 | `Services` | `IFilePickerService` / `FilePickerService` | 文件选择/保存（StorageProvider） |
 | `Converters` | `OutputFormatNameConverter` | 枚举→中文名（ComboBox） |
 | `Styles` | `AppTheme.axaml`（loose `<Styles>` 资源，无 code-behind） | 集中式样式层（class 选择器设计系统，B 方案，§6.6） |
+| `Assets` | `app.ico`（7 档多分辨率） | 应用图标：`<ApplicationIcon>` 嵌入 exe + `AvaloniaResource` 供 `MainWindow.Icon`（§6.6）。源图脚本 `scripts/generate_icon.py` |
 
 **STTmini.Core.Tests**（`src/STTmini.Core.Tests/`，xunit）：覆盖全部纯逻辑 + 流水线编排（mock 组件）。具体用例数随实现增长，以 `dotnet test` 实测为准。
 

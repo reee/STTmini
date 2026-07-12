@@ -7,11 +7,17 @@
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <!-- 单文件发布时不剥离非托管 ffmpeg/shepa-onnx 原生依赖；禁止 trim/AOT（AGENTS.md §10.2） -->
     <PublishTrimmed>false</PublishTrimmed>
+    <!-- 应用图标：嵌入到 exe 的 Win32 资源（Explorer / 任务栏 / Alt+Tab 显示）。
+         源图 scripts/generate_icon.py 用 Pillow 重渲染设计 SVG 的几何（蓝盘 + 白色播放三角 + 6 条字幕条）。
+         作为 ApplicationIcon 时 MSBuild 同时写入它，AvaloniaResource ItemGroup 让它也作为 avares:// 资源供 Window.Icon 加载。 -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <!-- 集中式样式层（AppTheme.axaml）打包为 Avalonia 资源，供 App.axaml 的 StyleInclude 解析 -->
+  <!-- Assets/app.ico：作为 avares:// 资源供 MainWindow.Icon 加载（任务栏/窗口图标） -->
   <ItemGroup>
     <AvaloniaResource Include="Styles\AppTheme.axaml" />
+    <AvaloniaResource Include="Assets\app.ico" />
   </ItemGroup>
 
   <ItemGroup>
