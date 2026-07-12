@@ -16,7 +16,6 @@ public class SettingsStoreTests
         var s = store.Load();
 
         Assert.Null(s.FfmpegPathOverride);
-        Assert.Equal(OutputFormat.PlainText, s.DefaultOutputFormat);
         Assert.Null(s.LastInputDirectory);
     }
 
@@ -28,7 +27,6 @@ public class SettingsStoreTests
         var original = new Settings
         {
             FfmpegPathOverride = "/usr/bin/ffmpeg",
-            DefaultOutputFormat = OutputFormat.Srt,
             LastInputDirectory = "/videos",
         };
 
@@ -36,7 +34,6 @@ public class SettingsStoreTests
         var loaded = store.Load();
 
         Assert.Equal("/usr/bin/ffmpeg", loaded.FfmpegPathOverride);
-        Assert.Equal(OutputFormat.Srt, loaded.DefaultOutputFormat);
         Assert.Equal("/videos", loaded.LastInputDirectory);
 
         File.Delete(path);
@@ -51,7 +48,8 @@ public class SettingsStoreTests
         var store = new SettingsStore(path, NullLogger<SettingsStore>.Instance);
         var s = store.Load();
 
-        Assert.Equal(OutputFormat.PlainText, s.DefaultOutputFormat);
+        // 回退默认：所有可空字段为 null
+        Assert.Null(s.FfmpegPathOverride);
 
         File.Delete(path);
     }
@@ -64,7 +62,7 @@ public class SettingsStoreTests
         try
         {
             var store = new SettingsStore(path, NullLogger<SettingsStore>.Instance);
-            store.Save(new Settings { DefaultOutputFormat = OutputFormat.Srt });
+            store.Save(new Settings { FfmpegPathOverride = "/usr/bin/ffmpeg" });
 
             Assert.True(File.Exists(path));
         }
@@ -75,18 +73,5 @@ public class SettingsStoreTests
                 Directory.Delete(dir, recursive: true);
             }
         }
-    }
-
-    [Fact]
-    public void OutputFormat_SerializesAsString()
-    {
-        var path = TempFile();
-        var store = new SettingsStore(path, NullLogger<SettingsStore>.Instance);
-        store.Save(new Settings { DefaultOutputFormat = OutputFormat.Srt });
-
-        var json = File.ReadAllText(path);
-        Assert.Contains("\"Srt\"", json);
-
-        File.Delete(path);
     }
 }

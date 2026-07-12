@@ -15,7 +15,8 @@ namespace STTmini.App.ViewModels;
 
 /// <summary>
 /// 主窗口 ViewModel（AGENTS.md §6.2 / §6.3 / §6.4 / §7）。
-/// 单文件工作流：选输入 → 转录（进度+可取消）→ 查看结果（纯文本/SRT 实时切换）→ 保存。
+/// 单文件工作流：选输入 → 转录（进度+可取消）→ 查看纯文本结果 → 保存文本 / 保存字幕。
+/// 两种格式从同一份段数据即时格式化，无需重跑识别（§6.2）。
 /// </summary>
 public partial class MainWindowViewModel : ViewModelBase
 {
@@ -28,7 +29,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private CancellationTokenSource? _cts;
     private string? _inputPath;
 
-    /// <summary>最近一次转录的按段结果（供纯文本/SRT 切换重排，AGENTS.md §6.2 step 3）。</summary>
+    /// <summary>最近一次转录的按段结果（供「保存文本 / 保存字幕」即时格式化，AGENTS.md §6.2）。</summary>
     private IReadOnlyList<Core.Recognition.SegmentRecognition>? _lastSegments;
 
     /// <summary>实时填充用的纯文本缓冲区（与 <see cref="PlainTextFormatter"/> 共用规则）。</summary>
@@ -48,7 +49,6 @@ public partial class MainWindowViewModel : ViewModelBase
         _settingsStore = settingsStore;
         SettingsPage = settingsPage;
         _logger = logger;
-        _outputFormat = settings.DefaultOutputFormat;
     }
 
     /// <summary>输入文件路径（只读显示）。</summary>
@@ -71,27 +71,13 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(TranscribeCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelCommand))]
-    [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SaveTextCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SaveSubtitleCommand))]
     private bool _isBusy;
 
     /// <summary>错误/提示消息。</summary>
     [ObservableProperty]
     private string _statusMessage = string.Empty;
-
-    /// <summary>
-    /// 输出格式。切换后会实时重排已完成的转录结果（AGENTS.md §6.2 step 3：纯文本/SRT 切换）。
-    /// </summary>
-    [ObservableProperty]
-    private OutputFormat _outputFormat;
-
-    /// <summary>输出格式变化后，若已有结果则按新格式重排（AGENTS.md §6.2 step 3）。</summary>
-    partial void OnOutputFormatChanged(OutputFormat value)
-    {
-        if (_lastSegments is { Count: > 0 } segments && !IsBusy)
-        {
-            OutputText = FormatSegments(segments, value);
-        }
-    }
 
     /// <summary>设置页 VM（嵌入主窗口的设置区）。</summary>
     public SettingsViewModel SettingsPage { get; }
@@ -135,6 +121,9 @@ public partial class MainWindowViewModel : ViewModelBase
         OutputText = string.Empty;
         _lastSegments = null;
         StatusMessage = string.Empty;
+        // 清空结果后刷新保存按钮的可用态（否则上一轮的段数据会让按钮残留启用）。
+        SaveTextCommand.NotifyCanExecuteChanged();
+        SaveSubtitleCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>开始转录。</summary>
@@ -160,9 +149,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            var result = await Task.Run(() => _engine.TranscribeAsync(_inputPath, OutputFormat, progress, _cts.Token), _cts.Token);
+            // 引擎只产纯文本预览（UI 主显示）；SRT 由「保存字幕」按钮按 Segments 即时格式化写出（AGENTS.md §6.2）。
+            var result = await Task.Run(() => _engine.TranscribeAsync(_inputPath, progress, _cts.Token), _cts.Token);
             _lastSegments = result.Segments;
-            OutputText = result.FormattedText;
+            OutputText = result.PlainText;
             StatusMessage = "转录完成。";
         }
         catch (OperationCanceledException)
@@ -214,22 +204,31 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private bool CanCancel() => IsBusy && _cts is not null;
 
-    /// <summary>保存结果。</summary>
+    /// <summary>保存纯文本（.txt）。AGENTS.md §6.2：两种格式都从同一份段数据即时格式化。</summary>
     [RelayCommand(CanExecute = nameof(CanSave))]
-    private async Task SaveAsync()
+    private Task SaveTextAsync() => SaveAsync(SaveProfile.PlainText);
+
+    /// <summary>保存 SRT 字幕（.srt）。</summary>
+    [RelayCommand(CanExecute = nameof(CanSave))]
+    private Task SaveSubtitleAsync() => SaveAsync(SaveProfile.Srt);
+
+    /// <summary>
+    /// 两种保存的公共实现：按 <paramref name="profile"/> 即时格式化 <see cref="_lastSegments"/>，
+    /// 弹保存对话框并写盘。无段数据时直接忽略（按钮本身已禁用，此为兜底）。
+    /// </summary>
+    private async Task SaveAsync(SaveProfile profile)
     {
-        if (string.IsNullOrEmpty(OutputText))
+        if (_lastSegments is not { Count: > 0 } segments)
         {
             return;
         }
 
-        var ext = OutputFormat == OutputFormat.Srt ? "srt" : "txt";
         var baseName = !string.IsNullOrEmpty(_inputPath)
             ? Path.GetFileNameWithoutExtension(_inputPath)
             : "transcript";
 
         var path = await _filePicker.PickSaveFileAsync(
-            "保存转录结果", $"{baseName}.{ext}", ext);
+            profile.DialogTitle, $"{baseName}.{profile.Extension}", profile.Extension);
 
         if (path is null)
         {
@@ -238,7 +237,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            await _filePicker.SaveTextAsync(path, OutputText);
+            var text = profile.Format(segments);
+            await _filePicker.SaveTextAsync(path, text);
             StatusMessage = $"已保存：{path}";
         }
         catch (Exception ex)
@@ -248,7 +248,8 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private bool CanSave() => !IsBusy && !string.IsNullOrEmpty(OutputText);
+    /// <summary>有可保存的结果：非忙碌且有段数据（字幕必须有时间戳，纯文本不够）。</summary>
+    private bool CanSave() => !IsBusy && _lastSegments is { Count: > 0 };
 
     /// <summary>
     /// 进度回调。<see cref="Progress{T}"/> 已捕获 UI 线程的 SynchronizationContext，
@@ -274,8 +275,17 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private static string FormatSegments(IReadOnlyList<Core.Recognition.SegmentRecognition> segments, OutputFormat format)
-        => format == OutputFormat.Srt
-            ? SrtFormatter.Format(segments)
-            : PlainTextFormatter.Format(segments);
+    /// <summary>
+    /// 单个保存目标（文件扩展名 / 对话框标题 / 段→文本格式化器）的描述。
+    /// 把"按格式分叉"的三处知识（扩展名、标题、格式化）收拢到一处，避免散落的 switch（§6.2 双保存）。
+    /// </summary>
+    private sealed class SaveProfile(string extension, string dialogTitle, Func<IReadOnlyList<Core.Recognition.SegmentRecognition>, string> format)
+    {
+        public static SaveProfile PlainText { get; } = new("txt", "保存文本", PlainTextFormatter.Format);
+        public static SaveProfile Srt { get; } = new("srt", "保存字幕", SrtFormatter.Format);
+
+        public string Extension { get; } = extension;
+        public string DialogTitle { get; } = dialogTitle;
+        public string Format(IReadOnlyList<Core.Recognition.SegmentRecognition> segments) => format(segments);
+    }
 }

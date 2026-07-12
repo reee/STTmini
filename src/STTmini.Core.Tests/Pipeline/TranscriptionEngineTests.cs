@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using STTmini.Core.Audio;
-using STTmini.Core.Configuration;
 using STTmini.Core.Errors;
 using STTmini.Core.Pipeline;
 using STTmini.Core.Recognition;
@@ -10,13 +9,14 @@ namespace STTmini.Core.Tests.Pipeline;
 /// <summary>
 /// 用 mock 组件验证 TranscriptionEngine 的编排逻辑（AGENTS.md §4.1 / §7），
 /// 不依赖真实模型 / 原生库。
+/// 引擎只产纯文本预览；SRT 的全局时间戳格式化由 <c>SrtFormatterTests</c> 单独覆盖。
 /// </summary>
 public class TranscriptionEngineTests
 {
     private const int SampleRate = 16000;
 
     [Fact]
-    public async Task Transcribe_ProducesPlainTextOutput()
+    public async Task Transcribe_ProducesPlainTextPreview()
     {
         var samples = new float[SampleRate * 1]; // 1 秒音频占位
         var engine = BuildEngine(
@@ -26,35 +26,11 @@ public class TranscriptionEngineTests
 
         var result = await engine.TranscribeAsync(
             "fake.mp4",
-            OutputFormat.PlainText,
             new NoProgress(),
             CancellationToken.None);
 
-        Assert.Equal("你好世界。", result.FormattedText);
+        Assert.Equal("你好世界。", result.PlainText);
         Assert.Single(result.Segments);
-        Assert.Equal(OutputFormat.PlainText, result.RequestedFormat);
-    }
-
-    [Fact]
-    public async Task Transcribe_SrtOutput_UsesGlobalTimestamps()
-    {
-        var samples = new float[SampleRate];
-        // VAD 段起点 10 秒，段内 token 相对 0.5/1.0
-        var engine = BuildEngine(
-            samples,
-            vadSegments: [new SpeechSegment(10f, samples)],
-            recognizeImpl: s => new RecognitionResult("测试", new[] { "测", "试" }, new float[] { 0.5f, 1.0f }));
-
-        var result = await engine.TranscribeAsync(
-            "fake.mp4",
-            OutputFormat.Srt,
-            new NoProgress(),
-            CancellationToken.None);
-
-        var srt = result.FormattedText;
-        Assert.Contains("00:00:10,500 --> 00:00:11,000", srt);
-        Assert.Contains("测试", srt);
-        Assert.StartsWith("1\n", srt);
     }
 
     [Fact]
@@ -68,7 +44,7 @@ public class TranscriptionEngineTests
             vadSegments: [new SpeechSegment(0f, new float[SampleRate])],
             recognizeImpl: _ => new RecognitionResult("x", Array.Empty<string>(), Array.Empty<float>()));
 
-        await engine.TranscribeAsync("fake.mp4", OutputFormat.PlainText, progress, CancellationToken.None);
+        await engine.TranscribeAsync("fake.mp4", progress, CancellationToken.None);
 
         var stages = reported.Select(p => p.Stage).ToArray();
         Assert.Contains(TranscriptionStage.DecodingAudio, stages);
@@ -98,7 +74,7 @@ public class TranscriptionEngineTests
             });
 
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
-            engine.TranscribeAsync("fake.mp4", OutputFormat.PlainText, new NoProgress(), cts.Token));
+            engine.TranscribeAsync("fake.mp4", new NoProgress(), cts.Token));
     }
 
     [Fact]
@@ -112,10 +88,10 @@ public class TranscriptionEngineTests
             recognizeImpl: _ => new RecognitionResult("内容。", Array.Empty<string>(), Array.Empty<float>()));
 
         var result = await engine.TranscribeAsync(
-            "fake.mp4", OutputFormat.PlainText, new NoProgress(), CancellationToken.None);
+            "fake.mp4", new NoProgress(), CancellationToken.None);
 
         // 两段都识别为"内容。"，静音间隔由子段邻接决定（≈0 → 单换行）
-        Assert.Equal("内容。\n内容。", result.FormattedText);
+        Assert.Equal("内容。\n内容。", result.PlainText);
         Assert.Equal(2, result.Segments.Count);
     }
 
@@ -130,7 +106,7 @@ public class TranscriptionEngineTests
             modelsPresent: false);
 
         await Assert.ThrowsAsync<ModelNotFoundException>(() =>
-            engine.TranscribeAsync("fake.mp4", OutputFormat.PlainText, new NoProgress(), CancellationToken.None));
+            engine.TranscribeAsync("fake.mp4", new NoProgress(), CancellationToken.None));
     }
 
     // ---- helpers ----

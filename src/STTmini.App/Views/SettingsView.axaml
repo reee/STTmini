@@ -1,8 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:STTmini.App.ViewModels"
-        xmlns:config="using:STTmini.Core.Configuration"
-        xmlns:cvt="using:STTmini.App.Converters"
         x:Class="STTmini.App.Views.SettingsView"
         x:DataType="vm:SettingsViewModel"
         Title="设置"
@@ -20,7 +18,7 @@
         <Border Grid.Row="0" Classes="appbar">
             <Grid ColumnDefinitions="Auto,*,Auto">
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <Border Classes="logo" />
+                    <Image Classes="logo" Source="avares://STTmini.App/Assets/logo.png" />
                     <TextBlock Classes="brand" Text="设置" VerticalAlignment="Center" />
                 </StackPanel>
                 <Button Grid.Column="2" Classes="icon-btn"
@@ -60,21 +58,8 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- 卡片段 2：默认输出格式（AGENTS.md §6.5） -->
-                        <Border Classes="card-section">
-                            <StackPanel>
-                                <TextBlock Classes="field-label" Text="默认输出格式" />
-                                <ComboBox SelectedItem="{Binding DefaultOutputFormat}"
-                                          ItemsSource="{x:Static config:OutputFormats.All}"
-                                          MinWidth="160">
-                                    <ComboBox.ItemTemplate>
-                                        <DataTemplate x:DataType="config:OutputFormat">
-                                            <TextBlock Text="{Binding Converter={x:Static cvt:OutputFormatNameConverter.Instance}}" />
-                                        </DataTemplate>
-                                    </ComboBox.ItemTemplate>
-                                </ComboBox>
-                            </StackPanel>
-                        </Border>
+                        <!-- 卡片段 2：默认输出格式已移除——转录结果同时持有纯文本与 SRT，
+                             由主窗的「保存文本 / 保存字幕」分别导出（AGENTS.md §6.2 / §6.5）。 -->
 
                         <!-- 卡片底：操作条 -->
                         <Border Classes="action-bar">

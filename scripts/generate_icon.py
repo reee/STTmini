@@ -63,8 +63,11 @@ BAR_RADIUS = max(1, round(BAR_RADIUS_DESIGN * CONTENT_SCALE))
 
 SUPER = 4  # supersample factor for anti-aliasing
 ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
+LOGO_SIZE = 256  # PNG used by <Image> in the top app bar (app-icon-as-logo)
 
-OUTPUT = Path(__file__).resolve().parent.parent / "src" / "STTmini.App" / "Assets" / "app.ico"
+_ASSETS = Path(__file__).resolve().parent.parent / "src" / "STTmini.App" / "Assets"
+OUTPUT_ICO = _ASSETS / "app.ico"
+OUTPUT_PNG = _ASSETS / "logo.png"
 
 
 def render(size: int) -> Image.Image:
@@ -93,7 +96,9 @@ def render(size: int) -> Image.Image:
 
 
 def main() -> int:
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    _ASSETS.mkdir(parents=True, exist_ok=True)
+
+    # app.ico — multi-resolution Win32/exe/window icon (ApplicationIcon + Window.Icon).
     # Pillow's ICO writer keys each entry by image size: every target size must
     # appear both as a frame of matching dimensions and in `sizes`. Render the
     # largest as the base (Pillow uses it as the icon's primary image) and pass
@@ -101,12 +106,18 @@ def main() -> int:
     largest = render(ICON_SIZES[-1])
     smaller = [render(s) for s in ICON_SIZES[:-1]]
     largest.save(
-        OUTPUT,
+        OUTPUT_ICO,
         format="ICO",
         sizes=[(s, s) for s in ICON_SIZES],
         append_images=smaller,
     )
-    print(f"wrote {OUTPUT} ({OUTPUT.stat().st_size} bytes) sizes={ICON_SIZES}")
+    print(f"wrote {OUTPUT_ICO} ({OUTPUT_ICO.stat().st_size} bytes) sizes={ICON_SIZES}")
+
+    # logo.png — single bitmap for the <Image> logo in the top app bar. ICO decoding
+    # in Avalonia's Image path is less reliable than PNG; the two assets share one
+    # render so the logo matches the exe/window icon exactly.
+    render(LOGO_SIZE).save(OUTPUT_PNG, format="PNG")
+    print(f"wrote {OUTPUT_PNG} ({OUTPUT_PNG.stat().st_size} bytes) size={LOGO_SIZE}")
     return 0
 
 

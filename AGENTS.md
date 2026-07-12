@@ -243,10 +243,12 @@ OfflineRecognizerResult result = stream.Result;
 
 **单文件**（v1 不做批量）。主流程：
 
-1. 选择输入文件（文件选择对话框 + 拖放）。
+1. 选择输入文件（文件选择对话框 + 拖放，按钮文案「浏览…」）。
 2. 点击转录（进度 + 可取消）。
-3. 内联查看结果（纯文本 / SRT 切换）。
-4. 保存为 `.txt` 或 `.srt`。
+3. 内联查看纯文本预览结果（实时填充）。
+4. 保存为 `.txt`（「保存文本」）或 `.srt`（「保存字幕」）——两种格式从同一份段数据即时格式化，**无需重跑识别**（引擎结果 `TranscriptionResult.Segments` 携带全部段，§5.1）。
+
+> 早先版本让用户在 UI 上选「纯文本 / SRT」二选一，并据此保存单格式。现已改为：一次转录即同时持有两种表示，主窗结果区固定展示纯文本（可读性最好），SRT 经「保存字幕」按钮按段即时格式化写出。设置页的「默认输出格式」随之移除（§6.5 / §8.2）。
 
 ### 6.3 进度反馈
 
@@ -269,9 +271,9 @@ ASR 阶段每完成一段即通过 `IProgress<T>` 推送一次，结果面板**�
 | 项 | 说明 |
 |----|------|
 | ffmpeg 路径 | 自动检测 PATH，用户可手动覆盖。未配置时转录入口给出明显提示。 |
-| 默认输出格式 | 纯文本（默认）/ SRT。 |
 
 > 模型目录随发布包附带（§8.3 / §9.1），用户不可改、无需在 UI 暴露——早期文档在此列过只读展示项，现已移除（冗余）。
+> 「默认输出格式」亦已移除——转录结果同时持有纯文本与 SRT，由主窗双保存按钮分别导出（§6.2）。
 
 ### 6.6 视觉设计语言（B 方案：卡片现代）
 
@@ -280,11 +282,11 @@ ASR 阶段每完成一段即通过 `IProgress<T>` 推送一次，结果面板**�
 - **配色**：浅灰页面底（`#F4F5F7`）+ 白卡片 + 柔阴影；靛蓝强调色（`#5B5BD6`）用于主按钮/进度条/链接。
 - **结构**：顶部应用栏（品牌 logo + 主 CTA）+ 单张居中主卡片（内分输入/进度/结果三段）+ 卡片底操作条。
 - **样式机制**：Avalonia 12 class 选择器（`Classes="card"` / `"primary"` / `"input-pill"` 等）。`App.axaml` 的 `Application.Styles` 里**必须先放 `<FluentTheme />`，再 `<StyleInclude>` 本主题**——`AppTheme` 只定义 class 选择器覆盖，控件模板（ComboBox 弹出、TextBox 文字呈现等）全靠 FluentTheme 提供；漏掉 FluentTheme 会导致 ComboBox 点不开下拉、TextBox 渲染空白。`AppTheme.axaml` 以 `AvaloniaResource` 打包进 `.csproj`。
-- **logo**：纯 AXAML `LinearGradientBrush`（`#5B5BD6`→`#8B5CF6`），不打包图片资源。
-- **应用图标**（`src/STTmini.App/Assets/app.ico`，7 档多分辨率 16/24/32/48/64/128/256）：蓝盘（`#4285F4`）+ 白色播放三角 + 6 条字幕条的"语音→字幕"隐喻图。两处使用同一文件：
+- **logo**：顶栏 STTmini 前的 24×24 图标 = 真实 app icon，以 `Assets/logo.png` 加载（`<Image Source="avares://STTmini.App/Assets/logo.png" />`，样式 `Image.logo`）。早期用纯 AXAML 渐变方块占位，现已替换。PNG 走 Avalonia `<Image>` 解码路径（比 ICO 稳），与 app icon 同源（同由 `scripts/generate_icon.py` 渲染）。
+- **应用图标**（`src/STTmini.App/Assets/app.ico`，7 档多分辨率 16/24/32/48/64/128/256）：蓝盘（`#4285F4`）+ 白色播放三角 + 6 条字幕条的"语音→字幕"隐喻图。三角形与字幕条整体以 0.88 缩放因子绕盘心收缩，保持居中。两处使用同一文件：
   - `.csproj` 的 `<ApplicationIcon>` → 嵌入 exe 的 Win32 `RT_ICON` 资源（Explorer / 任务栏 / Alt+Tab / 发布包图标显示）。
   - `<AvaloniaResource Include="Assets\app.ico" />` → 作为 `avares://STTmini.App/Assets/app.ico` 资源，供 `MainWindow` 的 `Icon` 属性加载（窗口左上角图标）。
-  - 源图由 `scripts/generate_icon.py` 用 Pillow（4× 超采样 + LANCZOS 降采样）按几何重渲染生成，无需 cairo/svg 原生依赖；设计改动后重跑该脚本即可。`Assets/` 下的 `.ico` 为生成产物，进 Git 以便无 Python 环境也能构建。
+  - 源图由 `scripts/generate_icon.py` 用 Pillow（4× 超采样 + LANCZOS 降采样）按几何重渲染生成，同时导出 `app.ico`（多尺寸）与 `logo.png`（256×256），无需 cairo/svg 原生依赖；设计改动后重跑该脚本即可。`Assets/` 下的 `.ico`/`.png` 为生成产物，进 Git 以便无 Python 环境也能构建。
 - 视觉来源：`prototype/ui-redesign/`（throwaway HTML 原型，变体 B 胜出，A 极简/C 深色落选）。
 
 ---
@@ -319,10 +321,10 @@ RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
 ### 8.2 配置项（极简）
 
 - `FfmpegPathOverride`（string?，null = 用 PATH 自动检测）
-- `DefaultOutputFormat`（"PlainText" | "Srt"，默认 "PlainText"）
 - `LastInputDirectory`（string?）
 
 **不**记录最近文件列表、不记录窗口几何。
+> 旧版曾含 `DefaultOutputFormat`——转录结果现同时持有纯文本与 SRT（§6.2），该项已移除。`SettingsStore` 用 System.Text.Json 默认 `Skip` 未映射成员，残留旧键会被静默忽略，无需迁移。
 
 ### 8.3 模型目录
 
@@ -501,7 +503,7 @@ v1 维持 Paraformer-zh int8。
 | `Audio` | `VadWindowSlicer` | VAD 喂入的 512 样本窗口切片（纯逻辑） |
 | `Audio` | `SpeechSegment` / `IVoiceActivityDetector` / `SherpaVoiceActivityDetector` | VAD 抽象 + Silero 实现 |
 | `Audio` | `IAudioExtractor` | 音频提取接口 |
-| `Configuration` | `Settings` / `OutputFormat` / `OutputFormats` | 设置 POCO + 枚举 + UI 列表 |
+| `Configuration` | `Settings` | 设置 POCO（§8.2） |
 | `Configuration` | `SettingsStore` | 配置读写（损坏回退默认） |
 | `Configuration` | `AppPaths` | 平台相关路径（portable/XDG） |
 | `Errors` | `STTminiException` 及四个子类 | 异常分类（§11.1） |
@@ -522,9 +524,8 @@ v1 维持 Paraformer-zh int8。
 | `ViewModels` | `ViewModelBase` / `MainWindowViewModel` / `SettingsViewModel` | MVVM（CommunityToolkit.Mvvm 源生成器） |
 | `Views` | `MainWindow` / `SettingsView` | Avalonia 视图（简体中文） |
 | `Services` | `IFilePickerService` / `FilePickerService` | 文件选择/保存（StorageProvider） |
-| `Converters` | `OutputFormatNameConverter` | 枚举→中文名（ComboBox） |
 | `Styles` | `AppTheme.axaml`（loose `<Styles>` 资源，无 code-behind） | 集中式样式层（class 选择器设计系统，B 方案，§6.6） |
-| `Assets` | `app.ico`（7 档多分辨率） | 应用图标：`<ApplicationIcon>` 嵌入 exe + `AvaloniaResource` 供 `MainWindow.Icon`（§6.6）。源图脚本 `scripts/generate_icon.py` |
+| `Assets` | `app.ico`（7 档多分辨率）+ `logo.png`（256×256） | 应用图标：`app.ico` 由 `<ApplicationIcon>` 嵌入 exe + `AvaloniaResource` 供 `MainWindow.Icon`；`logo.png` 供顶栏 `<Image>` logo（§6.6）。两者同源，源图脚本 `scripts/generate_icon.py` |
 
 **STTmini.Core.Tests**（`src/STTmini.Core.Tests/`，xunit）：覆盖全部纯逻辑 + 流水线编排（mock 组件）。具体用例数随实现增长，以 `dotnet test` 实测为准。
 

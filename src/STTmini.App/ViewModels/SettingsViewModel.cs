@@ -10,7 +10,8 @@ namespace STTmini.App.ViewModels;
 
 /// <summary>
 /// 设置页 ViewModel（AGENTS.md §6.5）。
-/// ffmpeg 路径覆盖（带状态检测）、模型目录（只读）、默认输出格式。
+/// ffmpeg 路径覆盖（带状态检测）、模型目录（只读）。
+/// （默认输出格式已移除——转录结果同时持有纯文本与 SRT，由主窗双保存按钮导出。）
 /// </summary>
 public partial class SettingsViewModel : ViewModelBase
 {
@@ -27,7 +28,6 @@ public partial class SettingsViewModel : ViewModelBase
         _logger = logger;
 
         _ffmpegPathOverride = settings.FfmpegPathOverride ?? string.Empty;
-        _defaultOutputFormat = settings.DefaultOutputFormat;
         RefreshFfmpegStatus();
     }
 
@@ -35,10 +35,6 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
     private string _ffmpegPathOverride = string.Empty;
-
-    /// <summary>默认输出格式。</summary>
-    [ObservableProperty]
-    private OutputFormat _defaultOutputFormat = OutputFormat.PlainText;
 
     /// <summary>模型目录（只读显示，AGENTS.md §6.5）。</summary>
     public string ModelDirectory => _models.ModelDirectory;
@@ -80,7 +76,6 @@ public partial class SettingsViewModel : ViewModelBase
     public void Save()
     {
         _settings.FfmpegPathOverride = string.IsNullOrWhiteSpace(FfmpegPathOverride) ? null : FfmpegPathOverride.Trim();
-        _settings.DefaultOutputFormat = DefaultOutputFormat;
         try
         {
             _store.Save(_settings);

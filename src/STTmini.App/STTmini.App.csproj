@@ -14,10 +14,11 @@
   </PropertyGroup>
 
   <!-- 集中式样式层（AppTheme.axaml）打包为 Avalonia 资源，供 App.axaml 的 StyleInclude 解析 -->
-  <!-- Assets/app.ico：作为 avares:// 资源供 MainWindow.Icon 加载（任务栏/窗口图标） -->
+  <!-- Assets：app.ico = exe/窗口图标；logo.png = 顶栏 <Image> logo（与 app.ico 同源，PNG 在 Image 路径解码更稳） -->
   <ItemGroup>
     <AvaloniaResource Include="Styles\AppTheme.axaml" />
     <AvaloniaResource Include="Assets\app.ico" />
+    <AvaloniaResource Include="Assets\logo.png" />
   </ItemGroup>
 
   <ItemGroup>
