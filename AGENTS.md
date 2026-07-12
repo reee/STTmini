@@ -546,6 +546,10 @@ v1 维持 Paraformer-zh int8。
 - Silero VAD `MaxSpeechDuration` 默认 5s 会自动切分；v1 显式设 30s，统一由 25s `SegmentChunker` 切分。
 - Avalonia 选定为 **12.1.x**（用户确认），调试可视化器已并入核心包，不再单独引用 `Avalonia.Diagnostics`。
 - 引入集中式样式层 `Styles/AppTheme.axaml`（B 方案卡片现代风，§6.6）：早先视图样式全内联；v1 改为 class 选择器设计系统，主窗与设置弹窗共享。`App.axaml` 用 `<StyleInclude>` 合并，`.csproj` 以 `AvaloniaResource` 打包。视觉源自 throwaway HTML 原型 `prototype/ui-redesign/`（变体 B 胜出）。
+- **体积优化（平台后端细粒度引用）**：早先 `STTmini.App.csproj` 引聚合包 `Avalonia.Desktop`——它传递拉入 `Avalonia.Win32` + `Avalonia.X11` + `Avalonia.Native`（macOS）+ `Avalonia.Skia` + `Avalonia.HarfBuzz`，导致 win-x64 发布产物里也打包了 X11/Native/FreeDesktop/DBus 等无关平台后端。改为按 RID 精确引用单一平台后端：`win-x64` → `Avalonia.Win32` + `Avalonia.Skia` + `Avalonia.HarfBuzz`（注意 `Avalonia.Win32` 的 nuspec 不传递 Skia，需显式补；Linux 端 `Avalonia.X11` 已传递依赖 Skia，无需补）；设计期（无 RID 的 `dotnet build` / IDE）保留 `Avalonia.Desktop` 兜底。
+  - **副作用与对策**：换细粒度包后 `UsePlatformDetect()` 不再可用（它由 `Avalonia.Desktop` 提供）。`Program.cs` 改用 csproj 按 RID 定义的 `WINDOWS` / `LINUX` 编译符号分叉，显式调对应后端注册：`UseWin32().UseSkia().UseHarfBuzz()`（Windows）/ `UseX11().UseSkia().UseHarfBuzz()`（Linux）。注意 `UsePlatformDetect` 原本会自动配 Skia + HarfBuzz，手动调用时两者**必须显式补全**，否则启动报 "No rendering/text shaping system configured"。无 RID 兜底分支仍调 `UsePlatformDetect`。
+  - `UseWin32` / `UseX11` / `UseSkia` / `UseHarfBuzz` 均为扩展方法，所在命名空间是根 `Avalonia`（尽管 `UseWin32` 的实现类位于 `Avalonia.Win32.dll`），无需额外 `using`。
+- **体积优化（移除内嵌 Inter 字体）**：早先引 `Avalonia.Fonts.Inter`（~1.9MB）并在 `Program.cs` 调 `.WithInterFont()`。但 Inter 仅含西文字形，本应用 UI 为简体中文（§6.1），中文最终走系统字体 fallback。改为移除该包与调用，UI 西文跟随系统默认字体（Windows=Segoe UI / Linux=DejaVu Sans，两平台均含中文），视觉差异极小。
 
 ### 14.3 待办（手动冒烟，发布前）
 

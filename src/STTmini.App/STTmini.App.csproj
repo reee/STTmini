@@ -7,6 +7,12 @@
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <!-- 单文件发布时不剥离非托管 ffmpeg/shepa-onnx 原生依赖；禁止 trim/AOT（AGENTS.md §10.2） -->
     <PublishTrimmed>false</PublishTrimmed>
+    <!-- 按发布 RID 定义平台符号：Program.cs 用 #if 切换 UseWindows()/UseX11()
+         （换细粒度平台包后不再能用 Avalonia.Desktop 的 UsePlatformDetect，见下方包引用说明）。
+         仅在显式指定 RID 时定义；无 RID 的设计期构建（dotnet build / IDE）不定义任何符号，
+         走 Program.cs 的 else 分支用 Avalonia.Desktop 的 UsePlatformDetect 兜底。 -->
+    <DefineConstants Condition="'$(RuntimeIdentifier)' == 'win-x64'">$(DefineConstants);WINDOWS</DefineConstants>
+    <DefineConstants Condition="'$(RuntimeIdentifier)' == 'linux-x64'">$(DefineConstants);LINUX</DefineConstants>
     <!-- 应用图标：嵌入到 exe 的 Win32 资源（Explorer / 任务栏 / Alt+Tab 显示）。
          源图 scripts/generate_icon.py 用 Pillow 重渲染设计 SVG 的几何（蓝盘 + 白色播放三角 + 6 条字幕条）。
          作为 ApplicationIcon 时 MSBuild 同时写入它，AvaloniaResource ItemGroup 让它也作为 avares:// 资源供 Window.Icon 加载。 -->
@@ -21,11 +27,42 @@
     <AvaloniaResource Include="Assets\logo.png" />
   </ItemGroup>
 
-  <ItemGroup>
+  <!--
+    Avalonia 平台后端引用策略（体积优化，AGENTS.md §6.6 / §10.2）：
+    不引用聚合包 Avalonia.Desktop（它会同时拉入 Avalonia.Win32 + Avalonia.X11 +
+    Avalonia.Native[macOS] + Avalonia.Skia + Avalonia.HarfBuzz，导致 win-x64 发布
+    产物里也打包了 X11/Native/FreeDesktop/DBus 等无关平台后端，~5-7MB 冗余）。
+    改为按 RID 精确引用单一平台后端：
+      - 设计期（无 RID，dotnet build / IDE 加载 AXAML）：保留 Avalonia.Desktop 兜底，
+        设计器需要平台后端宿主才能实例化控件。
+      - win-x64：Avalonia.Win32（Windows 后端）。注意 Avalonia.Win32 不传递 Skia 依赖，
+        需显式补 Avalonia.Skia + Avalonia.HarfBuzz——它们经 SkiaSharp/HarfBuzzSharp 主包
+        拉入 libSkiaSharp.dll / libHarfBuzzSharp.dll（Win32 原生渲染资产）。
+      - linux-x64：Avalonia.X11。它的 nuspec 已传递依赖 Avalonia.Skia（含 Linux native
+        assets），无需再显式列。
+    两个 RID 之外的发布目标会被 AGENTS.md §10.2 硬约束拒绝（脚本不传其它 RID）。
+  -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == ''">
+    <!-- 设计期：聚合包，让 IDE / dotnet build 不指定 RID 时也能加载视图 -->
     <PackageReference Include="Avalonia" Version="12.1.0" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.0" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.0" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.0" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+    <PackageReference Include="Avalonia" Version="12.1.0" />
+    <PackageReference Include="Avalonia.Win32" Version="12.1.0" />
+    <PackageReference Include="Avalonia.Skia" Version="12.1.0" />
+    <PackageReference Include="Avalonia.HarfBuzz" Version="12.1.0" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.0" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
+    <PackageReference Include="Avalonia" Version="12.1.0" />
+    <PackageReference Include="Avalonia.X11" Version="12.1.0" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 不引用 Avalonia.Fonts.Inter（~1.9MB）：Inter 仅含西文字形，本应用 UI 为简体中文，
+         最终走系统字体 fallback。Program.cs 同步移除 .WithInterFont()。 -->
     <!-- Avalonia 12：调试可视化器已并入核心包，无需单独引用 Avalonia.Diagnostics -->
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />

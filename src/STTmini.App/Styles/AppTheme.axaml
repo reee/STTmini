@@ -25,7 +25,7 @@
     <SolidColorBrush x:Key="ProgressBarTrackBrush" Color="#EEF0F3" />
   </Styles.Resources>
 
-  <!-- ============ Window 基底（Inter 字体由 Program.cs .WithInterFont() 设置） ============ -->
+  <!-- ============ Window 基底（字体走系统默认 UI 字体；不内嵌 Inter，见 Program.cs） ============ -->
   <Style Selector="Window">
     <Setter Property="Background" Value="{StaticResource PageBackgroundBrush}" />
     <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
