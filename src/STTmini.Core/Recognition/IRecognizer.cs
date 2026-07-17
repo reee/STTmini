@@ -14,4 +14,15 @@ public interface IRecognizer : IDisposable
     /// <param name="samples">段内 PCM 样本（16kHz mono float）。</param>
     /// <returns>识别结果（含 Text / Tokens / 段内相对时间戳）。</returns>
     RecognitionResult Recognize(float[] samples);
+
+    /// <summary>
+    /// 批量识别多段（AGENTS.md §4.4 方案 B：原生 batch 解码，吞吐优化）。
+    /// 结果顺序与 <paramref name="batches"/> 一致。
+    /// 默认实现回退为逐段 <see cref="Recognize"/>，供测试 stub 继承——
+    /// 不覆盖即等价于串行循环，保持现有可测性。
+    /// </summary>
+    /// <param name="batches">每段 PCM 样本，顺序即结果顺序。</param>
+    /// <returns>每段识别结果（与输入同序）。</returns>
+    IReadOnlyList<RecognitionResult> RecognizeMany(IReadOnlyList<float[]> batches)
+        => batches.Select(Recognize).ToList();
 }

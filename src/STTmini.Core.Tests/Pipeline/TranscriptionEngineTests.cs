@@ -55,9 +55,11 @@ public class TranscriptionEngineTests
     }
 
     [Fact]
-    public async Task Transcribe_CancelAtSegmentBoundary_ThrowsOperationCanceled()
+    public async Task Transcribe_CancelAtBatchBoundary_ThrowsOperationCanceled()
     {
-        // 两段：在第一段识别后取消
+        // 取消粒度：批边界（AGENTS.md §4.4 / §6.4）。
+        // 两段（< BatchSize=8）并入一批：批内 Recognize 触发取消，
+        // 批处理返回后在批边界 ThrowIfCancellationRequested 抛出。已识别段保留。
         var samples = new float[SampleRate];
         using var cts = new CancellationTokenSource();
         var engine = BuildEngine(
@@ -69,12 +71,42 @@ public class TranscriptionEngineTests
             ],
             recognizeImpl: s =>
             {
-                cts.Cancel(); // 模拟在段边界被取消
+                cts.Cancel(); // 模拟在批内识别时被取消
                 return new RecognitionResult("段。", Array.Empty<string>(), Array.Empty<float>());
             });
 
         await Assert.ThrowsAsync<OperationCanceledException>(() =>
             engine.TranscribeAsync("fake.mp4", new NoProgress(), cts.Token));
+    }
+
+    [Fact]
+    public async Task Transcribe_UsesBatchRecognize_AndChunksByBatchSize()
+    {
+        // 25 段应分 4 批（8+8+8+1）调用 RecognizeMany，且结果按段顺序输出（AGENTS.md §4.4 方案 B）。
+        // batchSize 直接引用 TranscriptionEngine.BatchSize，避免生产/测试各定义一份魔法数漂移。
+        int batchSize = TranscriptionEngine.BatchSize;
+        const int segmentCount = 25;
+        var samples = new float[SampleRate];
+        var vadSegments = Enumerable.Range(0, segmentCount)
+            .Select(i => new SpeechSegment(i * 1f, samples))
+            .ToList();
+
+        var batchCallSizes = new List<int>();
+        var engine = BuildEngineWithBatchCounter(
+            samples,
+            vadSegments,
+            recognizeImpl: s => new RecognitionResult("段。", Array.Empty<string>(), Array.Empty<float>()),
+            batchCallSizes);
+
+        var result = await engine.TranscribeAsync("fake.mp4", new NoProgress(), CancellationToken.None);
+
+        int expectedBatches = (segmentCount + batchSize - 1) / batchSize; // ceil(25/8) = 4
+        Assert.Equal(expectedBatches, batchCallSizes.Count);
+        // 前 3 批满 8 段，末批 1 段
+        Assert.Equal(Enumerable.Repeat(batchSize, expectedBatches - 1).Append(segmentCount - batchSize * (expectedBatches - 1)),
+            batchCallSizes);
+        // 顺序保持：全部 25 段都被识别
+        Assert.Equal(segmentCount, result.Segments.Count);
     }
 
     [Fact]
@@ -122,6 +154,21 @@ public class TranscriptionEngineTests
         return new TranscriptionEngine(extractor, factory, NullLogger<TranscriptionEngine>.Instance);
     }
 
+    /// <summary>
+    /// 构造引擎，并在其 recognizer 上记录每次 RecognizeMany 的批大小
+    /// （用于验证 TranscriptionEngine 确实走了 batch 路径并按 BatchSize 切批）。
+    /// </summary>
+    private static TranscriptionEngine BuildEngineWithBatchCounter(
+        float[] extractedSamples,
+        IReadOnlyList<SpeechSegment> vadSegments,
+        Func<float[], RecognitionResult> recognizeImpl,
+        List<int> batchCallSizes)
+    {
+        var extractor = new StubAudioExtractor(extractedSamples);
+        var factory = new StubComponentsFactory(vadSegments, recognizeImpl, modelsPresent: true, batchCallSizes);
+        return new TranscriptionEngine(extractor, factory, NullLogger<TranscriptionEngine>.Instance);
+    }
+
     private sealed class StubAudioExtractor(float[] samples) : IAudioExtractor
     {
         public Task<float[]> ExtractAsync(string inputPath, CancellationToken cancellationToken)
@@ -133,15 +180,21 @@ public class TranscriptionEngineTests
         private readonly IReadOnlyList<SpeechSegment> _vadSegments;
         private readonly Func<float[], RecognitionResult> _recognize;
         private readonly bool _modelsPresent;
+        private readonly List<int>? _batchCallSizes;
 
-        public StubComponentsFactory(IReadOnlyList<SpeechSegment> vadSegments, Func<float[], RecognitionResult> recognize, bool modelsPresent)
+        public StubComponentsFactory(
+            IReadOnlyList<SpeechSegment> vadSegments,
+            Func<float[], RecognitionResult> recognize,
+            bool modelsPresent,
+            List<int>? batchCallSizes = null)
         {
             _vadSegments = vadSegments;
             _recognize = recognize;
             _modelsPresent = modelsPresent;
+            _batchCallSizes = batchCallSizes;
         }
 
-        public IRecognizer CreateRecognizer() => new StubRecognizer(_recognize);
+        public IRecognizer CreateRecognizer() => new StubRecognizer(_recognize, _batchCallSizes);
         public IVoiceActivityDetector CreateVoiceActivityDetector() => new StubVad(_vadSegments);
 
         public void EnsureModelsPresent()
@@ -153,9 +206,26 @@ public class TranscriptionEngineTests
         }
     }
 
-    private sealed class StubRecognizer(Func<float[], RecognitionResult> impl) : IRecognizer
+    private sealed class StubRecognizer : IRecognizer
     {
-        public RecognitionResult Recognize(float[] samples) => impl(samples);
+        private readonly Func<float[], RecognitionResult> _impl;
+        private readonly List<int>? _batchCallSizes;
+
+        public StubRecognizer(Func<float[], RecognitionResult> impl, List<int>? batchCallSizes = null)
+        {
+            _impl = impl;
+            _batchCallSizes = batchCallSizes;
+        }
+
+        public RecognitionResult Recognize(float[] samples) => _impl(samples);
+
+        // 覆盖默认 RecognizeMany：记录批大小，便于测试断言 batch 路径被实际走通。
+        public IReadOnlyList<RecognitionResult> RecognizeMany(IReadOnlyList<float[]> batches)
+        {
+            _batchCallSizes?.Add(batches.Count);
+            return batches.Select(_impl).ToList();
+        }
+
         public void Dispose() { }
     }
 

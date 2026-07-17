@@ -76,5 +76,75 @@ public sealed class SherpaRecognizer : IRecognizer
         }
     }
 
+    /// <summary>
+    /// 批量识别（AGENTS.md §4.4 方案 B）：把多段打成多个 OfflineStream，
+    /// 一次 <see cref="OfflineRecognizer.Decode(IEnumerable{OfflineStream})"/> 批量推理。
+    /// 与逐段 <see cref="Recognize"/> 逐字一致——仅是把 N 次 native 调用合并为 1 次 batch 调用，
+    /// 由 paraformer 的批维 + intra-op 线程池并行吃满多核。
+    /// </summary>
+    /// <remarks>
+    /// 顺序保证：先按序建 stream → 按序 AcceptWaveform → 按序读取 stream.Result。
+    /// sherpa-onnx 的 Decode(IEnumerable) 在 C-API 层即 <c>DecodeMultipleStreams</c>，
+    /// 官方文档明确每个 stream 各自保留独立 Result，顺序不乱。
+    /// </remarks>
+    public IReadOnlyList<RecognitionResult> RecognizeMany(IReadOnlyList<float[]> batches)
+    {
+        if (batches.Count == 0)
+        {
+            return Array.Empty<RecognitionResult>();
+        }
+
+        // 空 samples 段单独走快速路径（与单段一致），不进 batch——
+        // sherpa-onnx 对空输入行为未文档化，规避之。
+        var results = new RecognitionResult[batches.Count];
+        var streams = new List<OfflineStream>(batches.Count);
+        var pending = new List<(int Index, OfflineStream Stream)>(batches.Count);
+
+        try
+        {
+            for (int i = 0; i < batches.Count; i++)
+            {
+                var samples = batches[i];
+                if (samples.Length == 0)
+                {
+                    results[i] = new RecognitionResult(string.Empty, Array.Empty<string>(), Array.Empty<float>());
+                    continue;
+                }
+
+                var stream = _recognizer.CreateStream();
+                stream.AcceptWaveform(AudioConstants.SampleRate, samples);
+                streams.Add(stream);
+                pending.Add((i, stream));
+            }
+
+            if (pending.Count > 0)
+            {
+                _recognizer.Decode(pending.Select(p => p.Stream));
+                foreach (var (index, stream) in pending)
+                {
+                    var r = stream.Result;
+                    results[index] = new RecognitionResult(
+                        Text: r.Text ?? string.Empty,
+                        Tokens: r.Tokens ?? Array.Empty<string>(),
+                        Timestamps: r.Timestamps ?? Array.Empty<float>());
+                }
+            }
+
+            return results;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "ASR 批量识别抛出异常（batchSize={Count}）", batches.Count);
+            throw;
+        }
+        finally
+        {
+            foreach (var s in streams)
+            {
+                s.Dispose();
+            }
+        }
+    }
+
     public void Dispose() => _recognizer.Dispose();
 }

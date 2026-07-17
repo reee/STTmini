@@ -11,6 +11,14 @@ namespace STTmini.Core.Pipeline;
 /// </summary>
 public sealed class TranscriptionEngine
 {
+    /// <summary>
+    /// ASR 批大小（AGENTS.md §4.1[4] / §4.4 方案 B）。每批段合并为一次
+    /// <c>OfflineRecognizer.Decode(IEnumerable&lt;OfflineStream&gt;)</c>，由 paraformer 批维 +
+    /// intra-op 线程池并行吃满多核。8 是吞吐与 padding 浪费的折衷（VAD 段长天然相近）。
+    /// public 供测试引用，避免生产/测试各定义一份魔法数。
+    /// </summary>
+    public const int BatchSize = 8;
+
     private readonly IAudioExtractor _audioExtractor;
     private readonly ITranscriptionComponentsFactory _components;
     private readonly ILogger<TranscriptionEngine> _logger;
@@ -30,7 +38,7 @@ public sealed class TranscriptionEngine
     /// </summary>
     /// <param name="inputPath">输入视频/音频文件。</param>
     /// <param name="progress">进度回传（UI 线程 marshal 由调用方/框架处理）。</param>
-    /// <param name="cancellationToken">取消令牌（段边界生效）。</param>
+    /// <param name="cancellationToken">取消令牌（批边界生效，§4.4 / §6.4）。</param>
     /// <returns>转录结果（按段识别结果 + 纯文本预览）。SRT 等其它格式由调用方按 <see cref="TranscriptionResult.Segments"/> 即时格式化。</returns>
     public async Task<TranscriptionResult> TranscribeAsync(
         string inputPath,
@@ -66,40 +74,58 @@ public sealed class TranscriptionEngine
 
             using var recognizer = _components.CreateRecognizer();
 
+            // [4] 分批 batch 识别（AGENTS.md §4.1[4] / §4.4 方案 B）：
+            // 按 BatchSize 段成批送入 OfflineRecognizer.Decode(IEnumerable<OfflineStream>)，
+            // 由 paraformer 批维 + intra-op 线程池并行吃满多核。
+            // 批结果按 stream 创建顺序读取，段顺序、时间戳、纯文本分隔（§5.3）全部保持。
             float previousSegmentEnd = 0f;
             int index = 0;
-            foreach (var chunk in chunked)
+            for (int batchStart = 0; batchStart < chunked.Count; batchStart += BatchSize)
             {
-                // 取消在段边界生效（AGENTS.md §6.4）
+                // 取消在批边界生效（AGENTS.md §6.4）。
                 cancellationToken.ThrowIfCancellationRequested();
-                index++;
 
-                progress.Report(new TranscriptionProgress(
-                    TranscriptionStage.Recognizing,
-                    TranscriptionProgress.LabelFor(TranscriptionStage.Recognizing, index, chunked.Count),
-                    index,
-                    chunked.Count));
+                int batchLength = Math.Min(BatchSize, chunked.Count - batchStart);
+                var batchSamples = new List<float[]>(batchLength);
+                for (int i = batchStart; i < batchStart + batchLength; i++)
+                {
+                    batchSamples.Add(chunked[i].Samples);
+                }
 
-                var result = recognizer.Recognize(chunk.Samples);
+                var batchResults = recognizer.RecognizeMany(batchSamples);
 
-                // [5] 时间戳修正 + 段元信息（AGENTS.md §4.1[5] / §5.1）
-                float silenceBefore = Math.Max(0f, chunk.GlobalStartSeconds - previousSegmentEnd);
-                var segRecognition = new SegmentRecognition(
-                    GlobalStartSeconds: chunk.GlobalStartSeconds,
-                    GlobalEndSeconds: chunk.GlobalEndSeconds,
-                    Result: result,
-                    SilenceBeforeSeconds: silenceBefore);
+                // 按批内顺序逐段：时间戳修正 + 元信息 + 实时进度回传（§6.3）。
+                for (int j = 0; j < batchLength; j++)
+                {
+                    index++;
+                    var chunk = chunked[batchStart + j];
+                    var result = batchResults[j];
 
-                recognized.Add(segRecognition);
-                previousSegmentEnd = Math.Max(previousSegmentEnd, chunk.GlobalEndSeconds);
+                    progress.Report(new TranscriptionProgress(
+                        TranscriptionStage.Recognizing,
+                        TranscriptionProgress.LabelFor(TranscriptionStage.Recognizing, index, chunked.Count),
+                        index,
+                        chunked.Count));
 
-                // [6] 实时填充（AGENTS.md §6.3）
-                progress.Report(new TranscriptionProgress(
-                    TranscriptionStage.Recognizing,
-                    TranscriptionProgress.LabelFor(TranscriptionStage.Recognizing, index, chunked.Count),
-                    index,
-                    chunked.Count,
-                    LatestSegment: segRecognition));
+                    // [5] 时间戳修正 + 段元信息（AGENTS.md §4.1[5] / §5.1）
+                    float silenceBefore = Math.Max(0f, chunk.GlobalStartSeconds - previousSegmentEnd);
+                    var segRecognition = new SegmentRecognition(
+                        GlobalStartSeconds: chunk.GlobalStartSeconds,
+                        GlobalEndSeconds: chunk.GlobalEndSeconds,
+                        Result: result,
+                        SilenceBeforeSeconds: silenceBefore);
+
+                    recognized.Add(segRecognition);
+                    previousSegmentEnd = Math.Max(previousSegmentEnd, chunk.GlobalEndSeconds);
+
+                    // [6] 实时填充（AGENTS.md §6.3）
+                    progress.Report(new TranscriptionProgress(
+                        TranscriptionStage.Recognizing,
+                        TranscriptionProgress.LabelFor(TranscriptionStage.Recognizing, index, chunked.Count),
+                        index,
+                        chunked.Count,
+                        LatestSegment: segRecognition));
+                }
             }
         }
 

@@ -133,8 +133,10 @@ UI 层，引用 `STTmini.Core`。职责：
 [3] 超长段重切     若 segment 时长 > 25s → 固定窗口切为多个子段
    │
    ▼
-[4] ASR 识别       逐段（或逐子段）送入 OfflineRecognizer
+[4] ASR 识别       子段按 BatchSize=8 分批送入 OfflineRecognizer
+   │                  每批一次 Decode(IEnumerable<OfflineStream>)，intra-op 多线程
    │                  每段得到 Result.Text / Result.Tokens / Result.Timestamps
+   │                  （并行策略见 §4.4；批内 padding 到最长段，结果逐字同单段路径）
    ▼
 [5] 时间戳修正     每个 token 时间戳 += 段全局偏移（seg.Start 或子段偏移）
    │
@@ -167,11 +169,24 @@ UI 层，引用 `STTmini.Core`。职责：
 
 接口返回的 DTO（如 `RecognitionResult { Text, Tokens[], Timestamps[] }`）由 Core 自有，**不**把 sherpa-onnx 的结构体泄露到上层。
 
-### 4.4 认识器生命周期
+### 4.4 认识器生命周期与并行策略
 
 - `OfflineRecognizer` **每次运行新建**，运行结束 `Dispose`。
 - **不跨并发调用共享**（sherpa-onnx 的 recognizer 非线程安全，且 native 运行时初始化慢）。
-- 单次运行内：一个 worker task 串行处理所有段。
+- 单次运行内：一个 worker task，**单 recognizer 实例**贯穿整次转录（不每段新建）。
+
+#### 并行策略（v1，吃满多核）
+
+CPU 利用率优化采用**两层并行，共用同一 recognizer**，而非应用层多 recognizer 并行：
+
+1. **intra-op 多线程（保底收益）**：`OfflineModelConfig.NumThreads` = `min(Environment.ProcessorCount, 16)`。
+   ONNX Runtime 的 intra-op 线程池在单次 `Decode` 内部做大 GEMM 并行。paraformer-zh int8 是非自回归模型，intra-op 扩展性好——这一项单独就能让单次识别用满多核。16 为防服务器核数过大的保守上限，桌面用户不受影响。
+2. **原生 batch 解码（叠加收益）**：把超长段重切后的子段按 `BatchSize = 8` 分组，每批先创建多个 `OfflineStream` 并 `AcceptWaveform`，再一次调用 `OfflineRecognizer.Decode(IEnumerable<OfflineStream>)`（1.13.4 已确认存在该重载）。paraformer 支持批维，批内 padding 到最长段；VAD 段长天然相近，padding 浪费有界。
+   即便原生 batch 内部退化为顺序解码，也不劣于方案 A（仍是 intra-op 多线程），方案 B 为纯 upside。
+
+**关键不变量**：批结果按 stream 创建顺序读取，段顺序、`previousSegmentEnd` 计算、纯文本段落分隔（§5.3 依赖段间顺序的 silenceBefore）全部保持。取消粒度从段边界降为批边界（每 ≤8 段一次 `ThrowIfCancellationRequested`）。进度仍逐段上报（§6.3 实时填充平滑度不退化）。
+
+**明确不采用的方案**：应用层并行 + 多 recognizer（`Parallel.ForEach` + N 个 recognizer 实例）。理由：① recognizer 非线程安全、native init 慢；② N 份模型常驻内存 ~233MB × N，违背 Mini（§1.1 / §9）；③ 多 recognizer 各持 intra-op 线程池会产生线程过订阅，反而降吞吐。
 
 ---
 
@@ -193,10 +208,14 @@ OfflineRecognizerResult result = stream.Result;
   → result.Durations   : float[]  每 token 时长（秒，可能为 null）
 ```
 
+> **批量解码 API（§4.4 方案 B，吞吐优化）**：`OfflineRecognizer` 另有重载 `Decode(IEnumerable<OfflineStream> streams)`——
+> 批量建 stream → 批量 `AcceptWaveform` → 一次 `Decode(IEnumerable)` → 按序读各 `stream.Result`。
+> 每批 `BatchSize = 8` 段，批内 padding 到最长段。批结果顺序由 stream 创建顺序决定，与单段路径逐字一致。
+
 > 配置要点（v1.13.4 实测 API）：
 > - `config.ModelConfig.Paraformer.Model` = `model.int8.onnx` 路径（`OfflineParaformerModelConfig` **仅有** `.Model` 字段）。
 > - `config.ModelConfig.Tokens` = `tokens.txt` 路径（Tokens 在 `OfflineModelConfig` 上，**不在** Paraformer 子配置上）。
-> - `config.ModelConfig.NumThreads` = 1。
+> - `config.ModelConfig.NumThreads` = `min(Environment.ProcessorCount, 16)`（§4.4 intra-op 多线程）。值由 `ITranscriptionComponentsFactory` 在构造 `SherpaRecognizer` 时传入，类内不设默认。
 > - 离线结果类型 `OfflineRecognizerResult` **没有** `.Json` 属性（`.Json` 仅存在于在线结果）。
 
 - **全局时间戳** = `seg.StartSeconds + result.Timestamps[i]`（VAD 段）或 `子段全局起点 + result.Timestamps[i]`（超长段重切后）。
@@ -303,8 +322,8 @@ ASR 阶段每完成一段即通过 `IProgress<T>` 推送一次，结果面板**�
 - UI 线程：Avalonia 主线程，不执行任何 CPU 密集工作。
 - 转录流水线：单次 `Task.Run`，跑在线程池。
 - 进度回传：`IProgress<T>`（Avalonia 自动 marshal 到 UI 线程）。
-- 取消：`CancellationToken`，传入 worker；在段循环边界检查 `ThrowIfCancellationRequested()`。
-- 约束：**单 worker per run**，recognizer per-run 新建与释放。
+- 取消：`CancellationToken`，传入 worker；在批循环边界检查 `ThrowIfCancellationRequested()`（每 ≤ BatchSize 段一次，§4.4 / §6.4）。
+- 约束：**单 worker per run**，recognizer per-run 新建与释放（不跨并发调用共享）。
 
 ---
 
@@ -550,11 +569,13 @@ v1 维持 Paraformer-zh int8。
   - **副作用与对策**：换细粒度包后 `UsePlatformDetect()` 不再可用（它由 `Avalonia.Desktop` 提供）。`Program.cs` 改用 csproj 按 RID 定义的 `WINDOWS` / `LINUX` 编译符号分叉，显式调对应后端注册：`UseWin32().UseSkia().UseHarfBuzz()`（Windows）/ `UseX11().UseSkia().UseHarfBuzz()`（Linux）。注意 `UsePlatformDetect` 原本会自动配 Skia + HarfBuzz，手动调用时两者**必须显式补全**，否则启动报 "No rendering/text shaping system configured"。无 RID 兜底分支仍调 `UsePlatformDetect`。
   - `UseWin32` / `UseX11` / `UseSkia` / `UseHarfBuzz` 均为扩展方法，所在命名空间是根 `Avalonia`（尽管 `UseWin32` 的实现类位于 `Avalonia.Win32.dll`），无需额外 `using`。
 - **体积优化（移除内嵌 Inter 字体）**：早先引 `Avalonia.Fonts.Inter`（~1.9MB）并在 `Program.cs` 调 `.WithInterFont()`。但 Inter 仅含西文字形，本应用 UI 为简体中文（§6.1），中文最终走系统字体 fallback。改为移除该包与调用，UI 西文跟随系统默认字体（Windows=Segoe UI / Linux=DejaVu Sans，两平台均含中文），视觉差异极小。
+- **吞吐优化（CPU 多核并行）**：首版 `NumThreads=1` + 串行逐段 `Decode(stream)`，N 核机器稳态 CPU≈1/N（如 8 核 ~12%）。改为两层并行共用单 recognizer（§4.4）：① `NumThreads=min(ProcessorCount,16)` 走 ONNX Runtime intra-op；② `TranscriptionEngine` 按 `BatchSize=8` 分批，每批一次 `Decode(IEnumerable<OfflineStream>)`（1.13.4 反射确认存在该重载，paraformer 支持批维）。`IRecognizer` 新增默认接口方法 `RecognizeMany`（回退为循环 `Recognize`，保持测试 stub 零改动）。批结果按 stream 创建顺序读取，与单段路径逐字一致；取消粒度降为批边界；进度仍逐段上报（§6.3 平滑度不退化）。明确**不**采用应用层多 recognizer 并行（线程不安全 + 内存×N + 线程过订阅）。
 
 ### 14.3 待办（手动冒烟，发布前）
 
 - 下载真实模型到 `models/`（`scripts/models.sh`），填入 SHA256 占位。
 - 用真实中文视频跑一次端到端转录，核对 SRT 时间戳与纯文本段落分隔。
+- **多核 CPU 占用核对（§4.4 吞吐优化）**：转录中观察任务管理器 CPU 占用，应在 8 核机器上达 ~70-90%（改前 ~12%）；并核对识别文本与优化前逐字一致（并行只动吞吐，不改识别内容）。若 CPU 仍低，排查是否 NumThreads cap 过低或 batch 内部未并行。
 - 跨平台验证：Windows 单文件夹运行 + Linux tarball 运行。
 
 ---
