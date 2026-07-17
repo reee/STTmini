@@ -42,6 +42,51 @@ public sealed class FilePickerService : IFilePickerService
     }
 
     /// <inheritdoc/>
+    public async Task<IReadOnlyList<string>> PickOpenFilesAsync(string title, params string[] patterns)
+    {
+        var tl = TopLevel;
+        if (tl is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        var filter = patterns.Length > 0
+            ? new[] { new FilePickerFileType("媒体文件") { Patterns = patterns }, FilePickerFileTypes.All }
+            : new[] { FilePickerFileTypes.All };
+
+        var files = await tl.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = title,
+            AllowMultiple = true,
+            FileTypeFilter = filter,
+        });
+
+        return files
+            .Select(f => f.TryGetLocalPath())
+            .Where(p => !string.IsNullOrEmpty(p))
+            .Select(p => p!)
+            .ToList();
+    }
+
+    /// <inheritdoc/>
+    public async Task<string?> PickFolderAsync(string title)
+    {
+        var tl = TopLevel;
+        if (tl is null)
+        {
+            return null;
+        }
+
+        var folders = await tl.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = title,
+            AllowMultiple = false,
+        });
+
+        return folders.Count > 0 ? folders[0].TryGetLocalPath() : null;
+    }
+
+    /// <inheritdoc/>
     public async Task<string?> PickSaveFileAsync(string title, string suggestedName, string defaultExtension)
     {
         var tl = TopLevel;

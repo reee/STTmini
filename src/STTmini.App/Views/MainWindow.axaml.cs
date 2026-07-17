@@ -47,29 +47,65 @@ public partial class MainWindow : Window
     /// <summary>拖放悬停：仅当携带文件时允许 Copy（AGENTS.md §6.2 拖放）。</summary>
     private void OnDragOver(object? sender, DragEventArgs e)
     {
-        e.DragEffects = TryGetFirstFilePath(e.DataTransfer) is not null
+        e.DragEffects = HasAnyDroppedItem(e.DataTransfer)
             ? DragDropEffects.Copy
             : DragDropEffects.None;
         e.Handled = true;
     }
 
-    /// <summary>拖放落下：把第一个文件路径交给 ViewModel。</summary>
+    /// <summary>
+    /// 拖放落下：按当前模式分发（§4.5 / §6.2）。
+    /// 单文件模式 → 取第一个文件交给 AcceptDroppedFile；
+    /// 批量模式 → 枚举所有 dropped 项（文件 + 文件夹）交给 AcceptDroppedBatchInputs，由 BatchInputCollector 展开。
+    /// </summary>
     private void OnDrop(object? sender, DragEventArgs e)
     {
-        var path = TryGetFirstFilePath(e.DataTransfer);
-        e.DragEffects = path is not null ? DragDropEffects.Copy : DragDropEffects.None;
+        var items = EnumerateDroppedItems(e.DataTransfer).ToList();
+        e.DragEffects = items.Count > 0 ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
 
-        if (DataContext is MainWindowViewModel vm)
+        if (items.Count == 0 || DataContext is not MainWindowViewModel vm)
         {
-            vm.AcceptDroppedFile(path);
+            return;
+        }
+
+        if (vm.IsBatchMode)
+        {
+            vm.AcceptDroppedBatchInputs(items);
+        }
+        else
+        {
+            vm.AcceptDroppedFile(items[0]);
         }
     }
 
-    /// <summary>从拖放数据里取第一个文件的可读本机路径，无则 null。</summary>
-    private static string? TryGetFirstFilePath(IDataTransfer? data)
+    /// <summary>拖放数据里是否至少有一个可读本机路径的文件/文件夹项。</summary>
+    private static bool HasAnyDroppedItem(IDataTransfer? data)
+        => EnumerateDroppedItems(data).Any();
+
+    /// <summary>枚举拖放数据里所有项（文件 + 文件夹）的可读本机路径，跳过 null。</summary>
+    private static IEnumerable<string> EnumerateDroppedItems(IDataTransfer? data)
     {
-        var item = data?.TryGetFile();
-        return item?.TryGetLocalPath();
+        if (data is null)
+        {
+            yield break;
+        }
+
+        // TryGetFiles()（DataTransferExtensions）返回所有 dropped 项（文件 + 文件夹）；
+        // 单数 TryGetFile() 只取第一个——批量模式需要全部。
+        var items = data.TryGetFiles();
+        if (items is null)
+        {
+            yield break;
+        }
+
+        foreach (var item in items)
+        {
+            var path = item?.TryGetLocalPath();
+            if (!string.IsNullOrEmpty(path))
+            {
+                yield return path;
+            }
+        }
     }
 }

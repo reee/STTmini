@@ -23,6 +23,10 @@
     <SolidColorBrush x:Key="InputFillBrush" Color="#F7F8FA" />
     <SolidColorBrush x:Key="ResultFillBrush" Color="#FAFBFC" />
     <SolidColorBrush x:Key="ProgressBarTrackBrush" Color="#EEF0F3" />
+    <!-- 批量列表状态色（AGENTS.md §4.5 / §6.3） -->
+    <SolidColorBrush x:Key="SuccessBrush" Color="#1A8754" />
+    <SolidColorBrush x:Key="PendingBrush" Color="#9AA0A6" />
+    <SolidColorBrush x:Key="RunningBrush" Color="#5B5BD6" />
   </Styles.Resources>
 
   <!-- ============ Window 基底（字体走系统默认 UI 字体；不内嵌 Inter，见 Program.cs） ============ -->
@@ -215,6 +219,92 @@
     <Setter Property="Width" Value="24" />
     <Setter Property="Height" Value="24" />
     <Setter Property="Stretch" Value="Uniform" />
+  </Style>
+
+  <!-- ============ 模式分段切换器 [单文件 | 批量]（AGENTS.md §4.5 / §6.2）============
+       浅灰圆角胶囊内两个并排 RadioButton，选中态填白 + 主色字 + 轻阴影。 -->
+  <Style Selector="Border.segmented">
+    <Setter Property="Background" Value="{StaticResource InputFillBrush}" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="3" />
+  </Style>
+  <Style Selector="RadioButton.segmented-item">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+    <Setter Property="Padding" Value="14,5" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="FontSize" Value="13" />
+  </Style>
+  <Style Selector="RadioButton.segmented-item:checked">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
+  </Style>
+
+  <!-- ============ 批量文件列表（AGENTS.md §4.5 / §6.3）============
+       result-panel 复用为列表容器；每行 batch-row：状态圆点 + 文件名 + 状态文案。
+       行间用 1px 底分割线，整列表内部滚动（卡片 * 行驱动高度）。 -->
+  <Style Selector="Border.batch-list">
+    <Setter Property="Background" Value="{StaticResource ResultFillBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="9" />
+    <Setter Property="Padding" Value="4" />
+  </Style>
+  <!-- 行内状态圆点：默认灰（等待），按 datacontext 状态着色由 ListBoxItem 内部绑定 -->
+  <Style Selector="Ellipse.status-dot">
+    <Setter Property="Width" Value="8" />
+    <Setter Property="Height" Value="8" />
+  </Style>
+  <!-- 批量空态提示 -->
+  <Style Selector="TextBlock.batch-empty">
+    <Setter Property="Foreground" Value="{StaticResource TextStatusBrush}" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+
+  <!-- ============ 批量空态拖放区（虚线边框 + 大留白，AGENTS.md §6.6）============
+       Aiko / 下载管理器模式：空列表时显示一块虚线拖放区，引导用户拖入。
+       高度由 * 行弹性撑开；有项后隐藏。用偏灰边框（TextStatusBrush）模拟虚线观感
+       （Avalonia 12 Border 不直接支持 dash，实线近似已足够）。 -->
+  <Style Selector="Border.drop-zone">
+    <Setter Property="Background" Value="{StaticResource ResultFillBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource TextStatusBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="9" />
+    <Setter Property="Padding" Value="24" />
+    <Setter Property="MinHeight" Value="160" />
+  </Style>
+
+  <!-- ============ 行内 × 移除按钮（常驻，AGENTS.md §6.6）============
+       HandBrake / Adobe Media Encoder 模式：每行右侧常驻小 × 按钮，前景灰、hover 变红。
+       运行中行 IsEnabled=false（VM 驱动）。 -->
+  <Style Selector="Button.batch-remove">
+    <Setter Property="Width" Value="22" />
+    <Setter Property="Height" Value="22" />
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource TextStatusBrush}" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.batch-remove:pointerover">
+    <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
+    <Setter Property="Background" Value="{StaticResource PageBackgroundBrush}" />
+  </Style>
+
+  <!-- ============ 行内细进度条（仅运行中行，AGENTS.md §6.6）============
+       2px 高 + 主色前景 + 透明 track，与顶部整体进度条互补（一个看总、一个看当前文件）。 -->
+  <Style Selector="ProgressBar.batch-row-bar">
+    <Setter Property="Height" Value="2" />
+    <Setter Property="CornerRadius" Value="1" />
+    <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="MinWidth" Value="120" />
   </Style>
 
 </Styles>

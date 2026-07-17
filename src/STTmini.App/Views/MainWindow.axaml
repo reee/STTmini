@@ -12,8 +12,9 @@
     <!--
       B 方案布局（CTA 内联浏览行版，AGENTS.md §6.6）：
       无顶部应用栏——单张居中主卡片，卡片内由 Grid 锁骨架（Auto×3 + * + Auto），
-      仅结果文本框内部滚动，action-bar 永远钉在卡片底。
-      开始转录与浏览框同行：浏览→转录是相邻步骤，CTA 紧跟输入框。
+      仅结果区内部滚动，action-bar 永远钉在卡片底。
+      R0 header 加 [单文件|批量] 分段切换（§4.5）；R1/R2/R3/R4 各段内以 IsVisible
+      按 IsBatchMode 切换单文件 / 批量子视图。单文件流程完全保留。
       拖放 AllowDrop 挂在最外层卡片，命中区为整张卡片。
       视觉样式来自 Styles/AppTheme.axaml 的 class 选择器。
     -->
@@ -26,27 +27,40 @@
                 DragDrop.Drop="OnDrop">
             <!--
               锁骨架 Grid：header / 输入(+CTA) / 进度 / 结果(*) / 操作条。
-              改用 Grid 而非 StackPanel+ScrollViewer 的原因：结果文本随段数增长时，
+              改用 Grid 而非 StackPanel+ScrollViewer 的原因：结果随段数增长时，
               ScrollViewer 会让卡片整体长高、把底 action-bar 撑出屏幕；Grid 锁骨架后，
-              结果段独占 * 弹性高度、TextBox 内部滚动，action-bar 永远可见（§6.6）。
+              结果段独占 * 弹性高度、内容区内部滚动，action-bar 永远可见（§6.6）。
             -->
             <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
 
-                <!-- ============ R0 卡片 header：品牌 + 设置齿轮 ============ -->
+                <!-- ============ R0 卡片 header：品牌 + 模式分段切换 + 设置齿轮 ============ -->
                 <Border Grid.Row="0" Classes="card-header">
-                    <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
                         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                             <Image Classes="logo" Source="avares://STTmini.App/Assets/logo.png" />
                             <TextBlock Classes="brand" Text="STTmini" VerticalAlignment="Center" />
                         </StackPanel>
-                        <Button Grid.Column="2" Classes="icon-btn"
+                        <!-- 模式分段切换 [单文件|批量]（§4.5）：两个 RadioButton 绑定同一 bool，
+                             单文件=IsBatchMode 取反，批量=IsBatchMode 正向。 -->
+                        <Border Grid.Column="2" Classes="segmented" VerticalAlignment="Center" Margin="0,0,8,0">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton Classes="segmented-item" Content="单文件"
+                                             IsChecked="{Binding !IsBatchMode}"
+                                             IsEnabled="{Binding CanSwitchMode}" />
+                                <RadioButton Classes="segmented-item" Content="批量"
+                                             IsChecked="{Binding IsBatchMode}"
+                                             IsEnabled="{Binding CanSwitchMode}" />
+                            </StackPanel>
+                        </Border>
+                        <Button Grid.Column="3" Classes="icon-btn"
                                 Content="⚙"
                                 Click="OpenSettings" />
                     </Grid>
                 </Border>
 
-                <!-- ============ R1 输入段：input-pill + 开始转录 同行（浏览→转录相邻步骤，§6.6） ============ -->
-                <Border Grid.Row="1" Classes="card-section">
+                <!-- ============ R1 输入段 ============ -->
+                <!-- 单文件：input-pill + 开始转录 同行（浏览→转录相邻步骤，§6.6） -->
+                <Border Grid.Row="1" Classes="card-section" IsVisible="{Binding !IsBatchMode}">
                     <StackPanel>
                         <TextBlock Classes="field-label" Text="输入文件" />
                         <Grid ColumnDefinitions="*,Auto">
@@ -85,8 +99,40 @@
                     </StackPanel>
                 </Border>
 
+                <!-- 批量：选文件 / 选文件夹 + 格式 checkbox（§4.5 / §6.2）。
+                     「移除全部」入口已下移到 R3 列表头（清空与清空已完成并列，词汇区分）。 -->
+                <Border Grid.Row="1" Classes="card-section" IsVisible="{Binding IsBatchMode}">
+                    <StackPanel Spacing="10">
+                        <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                            <Button Grid.Column="0" Classes="btn" Content="选择文件…"
+                                    Margin="0,0,8,0"
+                                    Command="{Binding PickBatchFilesCommand}"
+                                    IsEnabled="{Binding !IsBatchBusy}" />
+                            <Button Grid.Column="1" Classes="btn" Content="选择文件夹…"
+                                    Margin="0,0,8,0"
+                                    Command="{Binding PickBatchFolderCommand}"
+                                    IsEnabled="{Binding !IsBatchBusy}" />
+                            <!-- 格式 checkbox（默认两个都勾；§6.2 双格式） -->
+                            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                                <CheckBox Content="导出 .txt"
+                                          IsChecked="{Binding BatchOutputTxt}"
+                                          IsEnabled="{Binding !IsBatchBusy}" />
+                                <CheckBox Content="导出 .srt"
+                                          IsChecked="{Binding BatchOutputSrt}"
+                                          IsEnabled="{Binding !IsBatchBusy}" />
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock Classes="status-text"
+                                   Text="{Binding BatchStatusMessage}"
+                                   IsVisible="{Binding !IsBatchBusy}"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
                 <!-- ============ R2 进度段（仅忙碌时可见，Auto 行隐藏即坍缩，AGENTS.md §6.3） ============ -->
-                <Border Grid.Row="2" Classes="card-section" IsVisible="{Binding IsBusy}">
+                <!-- 单文件进度（IsBusy 仅由单文件转录设置；批量用独立 IsBatchBusy） -->
+                <Border Grid.Row="2" Classes="card-section"
+                        IsVisible="{Binding IsBusy}">
                     <StackPanel>
                         <TextBlock Classes="field-label" Text="{Binding ProgressLabel}" />
                         <ProgressBar Classes="card-bar"
@@ -94,9 +140,21 @@
                                      Maximum="1" />
                     </StackPanel>
                 </Border>
+                <!-- 批量进度（两层：文件 i/N + 段 j/M） -->
+                <Border Grid.Row="2" Classes="card-section"
+                        IsVisible="{Binding IsBatchBusy}">
+                    <StackPanel Spacing="6">
+                        <TextBlock Classes="field-label" Text="{Binding BatchProgressLabel}" Margin="0,0,0,4" />
+                        <ProgressBar Classes="card-bar"
+                                     Value="{Binding BatchProgress}"
+                                     Maximum="1" />
+                        <TextBlock Classes="status-text" Text="{Binding BatchProgressDetail}" />
+                    </StackPanel>
+                </Border>
 
-                <!-- ============ R3 结果段（* 行驱动高度，TextBox 内部滚动，AGENTS.md §6.3 实时填充） ============ -->
-                <Border Grid.Row="3" Classes="card-section">
+                <!-- ============ R3 结果段（* 行驱动高度，内部滚动，AGENTS.md §6.3 实时填充） ============ -->
+                <!-- 单文件结果：纯文本预览 -->
+                <Border Grid.Row="3" Classes="card-section" IsVisible="{Binding !IsBatchMode}">
                     <Grid RowDefinitions="Auto,*">
                         <TextBlock Grid.Row="0" Classes="field-label" Text="转录结果" Margin="0,0,0,14" />
                         <Border Grid.Row="1" Classes="result-panel">
@@ -112,11 +170,108 @@
                         </Border>
                     </Grid>
                 </Border>
+                <!-- 批量文件列表 -->
+                <Border Grid.Row="3" Classes="card-section" IsVisible="{Binding IsBatchMode}">
+                    <Grid RowDefinitions="Auto,*">
+                        <!-- 列表头：左计数（「12 个文件」）+ 右两按钮「清空已完成 / 移除全部」（VS Code 模式，AGENTS.md §6.6）。
+                             破坏性更强的「移除全部」放最右；两者均按状态条件渲染——空列表时列表头只显示计数。 -->
+                        <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,14">
+                            <TextBlock Grid.Column="0" Classes="field-label" Margin="0"
+                                       Text="{Binding BatchItemsCountText}" />
+                            <Button Grid.Column="1" Classes="text-link" Content="清空已完成"
+                                    Padding="0" Margin="0,10,0,0"
+                                    Command="{Binding ClearCompletedBatchItemsCommand}"
+                                    IsVisible="{Binding HasCompletedItems}" />
+                            <Button Grid.Column="2" Classes="text-link" Content="移除全部"
+                                    Padding="0" Margin="0,10,0,0"
+                                    Command="{Binding ClearBatchListCommand}"
+                                    IsVisible="{Binding HasBatchItems}" />
+                        </Grid>
 
-                <!-- ============ R4 操作条：状态 + 保存文本 + 保存字幕（钉卡片底） ============
-                     取消能力已移除（§6.4）：实测耗时可控，常驻取消按钮空闲态冗余。
-                     status-text 仅转录中可见（IsBusy）——空闲态提示落在 R1 输入段下方，避免双显。 -->
-                <Border Grid.Row="4" Classes="action-bar">
+                        <Border Grid.Row="1" Classes="batch-list">
+                            <!--
+                              空态：虚线拖放区（Aiko / 下载管理器模式，§6.6）；有项时切换为 ListBox，内部滚动。
+                            -->
+                            <Panel>
+                                <Border Classes="drop-zone"
+                                        IsVisible="{Binding BatchItems.Count, Converter={x:Static ObjectConverters.Equal}, ConverterParameter=0}">
+                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                                        <TextBlock Text="📁" FontSize="28" HorizontalAlignment="Center" />
+                                        <TextBlock Classes="batch-empty" Text="将视频或音频文件拖到此处" />
+                                        <TextBlock Classes="batch-empty" Text="或使用上方「选择文件 / 选择文件夹」"
+                                                   FontSize="11" Opacity="0.7" />
+                                    </StackPanel>
+                                </Border>
+                                <ListBox Background="Transparent" BorderThickness="0"
+                                         Padding="2"
+                                         ItemsSource="{Binding BatchItems}"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate DataType="vm:BatchItemViewModel">
+                                            <!-- 行结构：[状态圆点] [文件名 + 状态/产出/错误 + 行内进度条] [打开/重试] [×]（AGENTS.md §6.6） -->
+                                            <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="10,7">
+                                                <!-- col0 状态圆点：颜色随 Status -->
+                                                <Ellipse Grid.Column="0" Classes="status-dot" VerticalAlignment="Center"
+                                                         Fill="{Binding Status, Converter={x:Static vm:BatchStatusToBrushConverter.Instance}}" />
+
+                                                <!-- col1 信息区：文件名 + 状态行 + 行内进度条（仅运行中） -->
+                                                <StackPanel Grid.Column="1" Margin="12,0,10,0" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding FileName}"
+                                                               FontWeight="SemiBold"
+                                                               TextTrimming="CharacterEllipsis" />
+                                                    <!-- 状态文案：等待/进行中（无产出摘要时显示） -->
+                                                    <TextBlock Classes="status-text"
+                                                               Text="{Binding StatusText}"
+                                                               IsVisible="{Binding OutputSummary, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
+                                                    <!-- 产出摘要：成功行显示「→ v1.txt, v1.srt」 -->
+                                                    <TextBlock Classes="status-text"
+                                                               Text="{Binding OutputSummary}"
+                                                               IsVisible="{Binding OutputSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                               Foreground="{StaticResource SuccessBrush}" />
+                                                    <!-- 错误说明：失败行红色显示 -->
+                                                    <TextBlock Classes="status-text"
+                                                               Text="{Binding Error}"
+                                                               Foreground="{StaticResource DangerBrush}"
+                                                               TextWrapping="Wrap"
+                                                               IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                    <!-- 行内细进度条：仅运行中（IsRunning），2px，§6.6 -->
+                                                    <ProgressBar Classes="batch-row-bar"
+                                                                 Value="{Binding Progress}"
+                                                                 Maximum="1"
+                                                                 Margin="0,5,0,0"
+                                                                 IsVisible="{Binding IsRunning}" />
+                                                </StackPanel>
+
+                                                <!-- col2 操作区：「打开」（成功）或「重试」（失败），条件互斥 -->
+                                                <Button Grid.Column="2" Classes="text-link" Content="打开"
+                                                        VerticalAlignment="Center"
+                                                        Margin="0,0,8,0"
+                                                        Command="{Binding RequestOpenOutputCommand}"
+                                                        IsVisible="{Binding CanOpenOutput}" />
+                                                <Button Grid.Column="2" Classes="text-link" Content="重试"
+                                                        VerticalAlignment="Center"
+                                                        Margin="0,0,8,0"
+                                                        Command="{Binding RequestRetryCommand}"
+                                                        IsVisible="{Binding CanRetry}" />
+
+                                                <!-- col3 移除 × 按钮：常驻（运行中禁用） -->
+                                                <Button Grid.Column="3" Classes="batch-remove"
+                                                        Content="✕"
+                                                        VerticalAlignment="Center"
+                                                        Command="{Binding RequestRemoveCommand}"
+                                                        IsEnabled="{Binding CanRemove}" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </Panel>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- ============ R4 操作条 ============ -->
+                <!-- 单文件：状态 + 保存文本 + 保存字幕（§6.4 取消已移除） -->
+                <Border Grid.Row="4" Classes="action-bar" IsVisible="{Binding !IsBatchMode}">
                     <Grid ColumnDefinitions="*,Auto,Auto">
                         <TextBlock Grid.Column="0" Classes="status-text"
                                    Text="{Binding StatusMessage}"
@@ -130,6 +285,23 @@
                         <Button Grid.Column="2" Classes="primary"
                                 Content="保存字幕…"
                                 Command="{Binding SaveSubtitleCommand}" />
+                    </Grid>
+                </Border>
+                <!-- 批量：状态 + 取消 + 开始批量转录（§6.4 批量恢复取消） -->
+                <Border Grid.Row="4" Classes="action-bar" IsVisible="{Binding IsBatchMode}">
+                    <Grid ColumnDefinitions="*,Auto,Auto">
+                        <TextBlock Grid.Column="0" Classes="status-text"
+                                   Text="{Binding BatchProgressLabel}"
+                                   IsVisible="{Binding IsBatchBusy}"
+                                   VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" />
+                        <Button Grid.Column="1" Classes="btn"
+                                Content="取消"
+                                Margin="0,0,10,0"
+                                Command="{Binding CancelBatchCommand}" />
+                        <Button Grid.Column="2" Classes="primary"
+                                Content="开始批量转录"
+                                Command="{Binding StartBatchCommand}" />
                     </Grid>
                 </Border>
 

@@ -8,8 +8,9 @@ namespace STTmini.Core.Pipeline;
 /// <summary>
 /// 转录引擎：编排 AGENTS.md §4.1 的整条流水线（AGENTS.md §7）。
 /// 单 worker per run：每次 <see cref="TranscribeAsync"/> 调用起一个后台 Task，串行处理。
+/// 实现 <see cref="ITranscriptionEngine"/> 供批量编排（<see cref="BatchTranscriptionRunner"/>）与测试 stub 注入。
 /// </summary>
-public sealed class TranscriptionEngine
+public sealed class TranscriptionEngine : ITranscriptionEngine
 {
     /// <summary>
     /// ASR 批大小（AGENTS.md §4.1[4] / §4.4 方案 B）。每批段合并为一次

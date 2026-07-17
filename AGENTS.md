@@ -15,6 +15,7 @@
 - **跨平台**：基于 .NET 10 + Avalonia，Windows 与 Linux 同一份代码库。
 - **离线**：所有识别在本地完成，不依赖网络服务。
 - **简体中文优先**：界面与识别均面向简体中文，暂不考虑多语言。
+- **单文件 / 批量双模式**：主窗 header 分段切换 `[单文件|批量]`。单文件流程保留实时预览 + 双保存；批量模式支持选文件/文件夹、勾选导出格式（txt/srt/两者）、顺序转录、失败跳过继续、同目录自动产出（§4.5 / §6.2）。
 
 ### 1.1 名称语义
 
@@ -159,6 +160,9 @@ UI 层，引用 `STTmini.Core`。职责：
 | 纯文本格式化 | `PlainTextFormatter` | — |
 | 模型路径 | `ModelPathResolver` | — |
 | 配置 | `Settings`（POCO）+ `SettingsStore` | — |
+| 批量输入展开 | `BatchInputCollector`（混合路径→去重媒体文件列表，§4.5） | — |
+| 批量输出路径 | `BatchOutputResolver`（同目录同 basename 换扩展名，§4.5） | — |
+| 批量编排 | — | `ITranscriptionEngine`（seam：让 runner 可注入 stub 引擎测，§4.3 / §4.5） |
 
 ### 4.3 接口设计原则（配合 Q8 GPU seam 与 Q17 可测性）
 
@@ -187,6 +191,20 @@ CPU 利用率优化采用**两层并行，共用同一 recognizer**，而非应�
 **关键不变量**：批结果按 stream 创建顺序读取，段顺序、`previousSegmentEnd` 计算、纯文本段落分隔（§5.3 依赖段间顺序的 silenceBefore）全部保持。取消粒度从段边界降为批边界（每 ≤8 段一次 `ThrowIfCancellationRequested`）。进度仍逐段上报（§6.3 实时填充平滑度不退化）。
 
 **明确不采用的方案**：应用层并行 + 多 recognizer（`Parallel.ForEach` + N 个 recognizer 实例）。理由：① recognizer 非线程安全、native init 慢；② N 份模型常驻内存 ~233MB × N，违背 Mini（§1.1 / §9）；③ 多 recognizer 各持 intra-op 线程池会产生线程过订阅，反而降吞吐。
+
+### 4.5 批量编排（BatchTranscriptionRunner）
+
+批量模式在 §4.1 单文件流水线之上叠一层顺序编排，**不引入新并行维度**（§4.4 并行结论不变）。
+
+- **顺序执行**：`BatchTranscriptionRunner.RunAsync` 顺序循环每个文件，复用同一 `ITranscriptionEngine.TranscribeAsync`。**不做跨文件并行**——理由同 §4.4 否决方案（recognizer 非线程安全 + 内存×N + 线程过订阅）。单文件内部仍吃满 intra-op + batch decode。
+- **per-file recognizer 生命周期**：每个文件经引擎时新建/释放 recognizer/VAD（§4.4 单 worker per run 不变）。接受 N× 初始化开销换取零并发风险——批量场景吞吐瓶颈是识别本身，非初始化。
+- **失败跳过继续**：单文件抛异常（ffmpeg 报错、无音频、模型问题等）→ 记录 `BatchFileOutcome.Failed`、继续下一文件，不中止批量。异常类型映射为简短 UI 文案（与 §11.1 单文件口径一致：`FfmpegNotFoundException`→「未找到 ffmpeg」等）。结束给汇总（N 成功 / M 失败）。
+- **进度两层**：内层 `TranscriptionProgress`（段 j/M）经 runner 转译为外层 `BatchTranscriptionProgress`（文件 i/N + 文件名 + 当前阶段 + 段进度 + 可选 `JustCompleted`）。UI 顶行「批量转录中…（文件 3/10：v3.mp4）」、次行「识别中…（段 5/12）」、整体进度条按「(已完成文件数 + 当前文件段进度)/总文件数」加权。
+- **`JustCompleted` 信号**：每个文件边界（成功或失败）runner 上抛一次带 `BatchFileOutcome` 的进度，驱动 UI 列表行状态切换（等待→进行中→完成/失败 + 输出文件名摘要 + 错误说明）。
+- **取消**：批量专用 `CancellationTokenSource`（与单文件 `_cts` 隔离），循环边界 `ThrowIfCancellationRequested`，取消冒泡到 `RunAsync` 调用方（已完成文件结局保留）。UI 恢复「取消」按钮（§6.4）。
+- **输出策略**：固定「各输入文件同目录、同 basename、换扩展名」（`video.mp4` → `video.txt` / `video.srt`），由纯逻辑 `BatchOutputResolver` 解析。覆盖已存在文件（对齐 §5.4 ffmpeg `-y`）。**不支持**自定义输出目录（v1）。
+- **格式选择**：`BatchOutputFormat` flags（`Txt`/`Srt`/`Both`），UI 两个 checkbox（默认双勾）。至少勾一个才能开始批量；runner 对 `None` 抛 `ArgumentException`。
+- **输入展开**：`BatchInputCollector.Collect`（纯逻辑，§4.2 Audio 模块）把混合路径（文件 + 文件夹）展开为去重的媒体文件全路径列表，按路径字典序稳定排序。文件夹仅扫顶层（**不递归**子目录，v1）。扩展名白名单与 §6.2 单文件 picker 一致（`mp4/mkv/mov/avi/webm/mp3/wav/m4a/flac/aac`）。
 
 ---
 
@@ -260,7 +278,9 @@ OfflineRecognizerResult result = stream.Result;
 
 ### 6.2 工作流
 
-**单文件**（v1 不做批量）。主流程：
+主窗 header `[单文件|批量]` 分段切换决定走哪条工作流（§4.5）。两套流程在 VM 中字段/CTS 完全隔离（单文件 `_cts` + `IsBusy`；批量 `_batchCts` + `IsBatchBusy`），切换时若任一在跑则禁用切换。
+
+**单文件**（默认）。主流程：
 
 1. 选择输入文件（文件选择对话框 + 拖放，按钮文案「浏览…」）。
 2. 点击转录（进度反馈，§6.3）。
@@ -268,6 +288,14 @@ OfflineRecognizerResult result = stream.Result;
 4. 保存为 `.txt`（「保存文本」）或 `.srt`（「保存字幕」）——两种格式从同一份段数据即时格式化，**无需重跑识别**（引擎结果 `TranscriptionResult.Segments` 携带全部段，§5.1）。
 
 > 早先版本让用户在 UI 上选「纯文本 / SRT」二选一，并据此保存单格式。现已改为：一次转录即同时持有两种表示，主窗结果区固定展示纯文本（可读性最好），SRT 经「保存字幕」按钮按段即时格式化写出。设置页的「默认输出格式」随之移除（§6.5 / §8.2）。
+
+**批量**（§4.5）。主流程：
+
+1. 选择文件（多选）或文件夹（顶层展开，不递归），或直接拖入多个文件/文件夹。`BatchInputCollector` 去重 + 扩展名白名单过滤后填入文件列表（每行 `BatchItemViewModel`：文件名 + 状态指示）。
+2. 勾选导出格式（`.txt` / `.srt` / 两者；默认两者都勾）。
+3. 点「开始批量转录」→ `BatchTranscriptionRunner` 顺序调用引擎，每行实时刷新状态（等待→进行中→✓ 已完成 / ✕ 失败），整体进度条两层（文件 i/N + 段 j/M）。
+4. 输出**自动写盘到各输入文件同目录**（`video.mp4` → `video.txt` / `video.srt`），无需逐文件保存对话框。
+5. 失败文件跳过继续，结束给汇总（N 成功 / M 失败）。可随时点「取消」中止（§6.4）。
 
 ### 6.3 进度反馈
 
@@ -279,11 +307,12 @@ OfflineRecognizerResult result = stream.Result;
 
 ASR 阶段每完成一段即通过 `IProgress<T>` 推送一次，结果面板**实时填充**（不等全部完成）。
 
-### 6.4 取消（v1 已移除）
+### 6.4 取消（单文件已移除；批量已恢复）
 
-- **取消能力已移除**：取消按钮、`CancelCommand`、`CanCancel` 均删除。
+- **单文件模式取消能力已移除**：取消按钮、`CancelCommand`、`CanCancel` 均删除。
 - 取舍依据：实测短/中长内容转录耗时可控（CPU int8 paraformer），且 action-bar 常驻取消按钮在空闲态造成视觉冗余。移除换简洁。
-- 流水线内部仍保留 `CancellationTokenSource` 管线（`TranscribeAsync` 内 `new CancellationTokenSource()` + `_cts.Token` 传给 engine + `_cts.Dispose()`）——这是 §7 线程模型的合理基建，与 UI 取消能力解耦；未来若长视频场景需要恢复取消，只重建 UI 命令即可。
+- 流水线内部仍保留 `CancellationTokenSource` 管线（`TranscribeAsync` 内 `new CancellationTokenSource()` + `_cts.Token` 传给 engine + `_cts.Dispose()`）——这是 §7 线程模型的合理基建，与 UI 取消能力解耦。
+- **批量模式恢复取消按钮**（`CancelBatchCommand`，批量 action-bar 中间）：批量是长任务（N 个文件累加，可达数小时），无取消会卡死。批量专用 `_batchCts` 与单文件 `_cts` 隔离；取消在 `BatchTranscriptionRunner` 循环边界生效，已完成文件结局保留。
 - 早期版本：取消按钮转录中可用，段边界粒度（当前段识别完成后停止），取消后已识别段保留显示。
 
 ### 6.5 Settings 页
@@ -301,11 +330,11 @@ ASR 阶段每完成一段即通过 `IProgress<T>` 推送一次，结果面板**�
 
 - **配色**：浅灰页面底（`#F4F5F7`）+ 白卡片 + 柔阴影；靛蓝强调色（`#5B5BD6`）用于主按钮/进度条/链接。
 - **结构（主窗）**：**无顶部应用栏**——单张居中主卡片，卡片内由 `Grid RowDefinitions="Auto,Auto,Auto,*,Auto"` 锁骨架（**不**再用 StackPanel + 外层 ScrollViewer，否则结果文本会把底 action-bar 撑出屏幕）：
-  - R0 卡片 header 行：左 logo + STTmini 小标题，右设置齿轮 `Button.icon-btn`（`OpenSettings`）。早期版本有独立顶栏 appbar 承载主 CTA；CTA 移入卡片后 appbar 失去存在理由已移除。
-  - R1 输入段（`card-section`）：input-pill + 浏览 + **开始转录 CTA 同行**（浏览→转录是相邻步骤，CTA 紧跟输入框；CTA 禁用判据 `CanTranscribe => !IsBusy && _inputPath 非空 && IsFfmpegAvailable`，三前置条件任一不满足即灰显）。ffmpeg 不可用时输入段下方显示「未检测到 ffmpeg，点右上角 ⚙ 设置路径」。**支持拖放——`DragDrop.AllowDrop` 挂在最外层卡片上而非 input-pill**，命中区扩大到整张卡片。
-  - R2 进度段（`card-section`，`IsVisible={IsBusy}`，Auto 行隐藏即坍缩）。
-  - R3 结果段（`card-section`，`*` 行驱动高度）：result-panel 内 `TextBox.result-text` 加 `ScrollViewer.VerticalScrollBarVisibility="Auto"`——**仅文本框内部滚动**，action-bar 永远钉在卡片底。这是「保持 App 高度不变」的关键：骨架锁高 + 内容区独占弹性。
-  - R4 action-bar（状态 + 保存文本 + 保存字幕）。取消能力已移除（§6.4）。
+  - R0 卡片 header 行：左 logo + STTmini 小标题，**中右 `[单文件|批量]` 分段切换**（`Border.segmented` + 两个 `RadioButton.segmented-item` 绑定 `IsBatchMode`，§4.5 / §6.2），右设置齿轮 `Button.icon-btn`（`OpenSettings`）。早期版本有独立顶栏 appbar 承载主 CTA；CTA 移入卡片后 appbar 失去存在理由已移除。
+  - R1 输入段（`card-section`）：单文件模式 = input-pill + 浏览 + **开始转录 CTA 同行**（浏览→转录是相邻步骤，CTA 紧跟输入框；CTA 禁用判据 `CanTranscribe => !IsBusy && _inputPath 非空 && IsFfmpegAvailable`，三前置条件任一不满足即灰显）。ffmpeg 不可用时输入段下方显示「未检测到 ffmpeg，点右上角 ⚙ 设置路径」。批量模式 = 选文件/选文件夹 + 格式 checkbox（txt/srt）；批量列表的「移除全部」入口下移到 R3 列表头（与「清空已完成」并列、词汇区分）。**R1/R3/R4 各段用 `IsVisible={IsBatchMode}` 按 `IsBatchMode` 切换单文件/批量子视图**，骨架不变。**支持拖放——`DragDrop.AllowDrop` 挂在最外层卡片上而非 input-pill**，命中区扩大到整张卡片；单文件模式取首个 dropped 文件，批量模式枚举全部（含文件夹，由 `BatchInputCollector` 展开）。
+  - R2 进度段（`card-section`，`IsVisible={IsBusy}`，Auto 行隐藏即坍缩）。批量模式另有独立进度段 `IsVisible={IsBatchBusy}`，两层进度（顶行文件 i/N + 次行段 j/M + 整体加权进度条）。
+  - R3 结果段（`card-section`，`*` 行驱动高度）：单文件模式 = result-panel 内 `TextBox.result-text` 加 `ScrollViewer.VerticalScrollBarVisibility="Auto"`；批量模式 = `Border.batch-list` 内 `ListBox`，**顶部列表头**（左 `BatchItemsCountText`「N 个文件」+ 右两按钮「清空已完成」（仅 `HasCompletedItems` 时可见）/「移除全部」（仅 `HasBatchItems` 时可见，破坏性更强放最右），**空态虚线拖放区** `Border.drop-zone`（📁 + 引导文案，列表为空时撑满 `*` 行），**行模板** `[状态圆点] [文件名 + 状态/产出/错误 + 运行中行内 2px 进度条] [打开/重试] [×]`（每行常驻 × 移除按钮，运行中禁用；成功行「打开」用系统默认程序打开产出、失败行「重试」）。内部滚动。**仅内容区内部滚动**，action-bar 永远钉在卡片底——「保持 App 高度不变」的关键：骨架锁高 + 内容区独占弹性。行操作经 `BatchItemViewModel` 上的 `RemoveRequested`/`OpenOutputRequested`/`RetryRequested` 回调注入父 VM（item 不反向持有 parent）。
+  - R4 action-bar：单文件模式 = 状态 + 保存文本 + 保存字幕（取消已移除，§6.4）。批量模式 = 批量状态 + **取消** + 开始批量转录（批量恢复取消，§6.4）。
 - **结构（设置弹窗）**：单卡片段（仅 ffmpeg 路径，§6.5）。弹窗高 ~390px、`CanResize=False`、**无外层 ScrollViewer**（只剩一段不需要滚）。早期为「三段内容」设计的高弹窗（520px）在设置项收敛后留有大量空白，已压低高度。仍保留 appbar + 单卡片 + action-bar 的视觉骨架以与主窗统一。
 - **样式机制**：Avalonia 12 class 选择器（`Classes="card"` / `"card-header"` / `"primary"` / `"input-pill"` 等）。`App.axaml` 的 `Application.Styles` 里**必须先放 `<FluentTheme />`，再 `<StyleInclude>` 本主题**——`AppTheme` 只定义 class 选择器覆盖，控件模板（ComboBox 弹出、TextBox 文字呈现等）全靠 FluentTheme 提供；漏掉 FluentTheme 会导致 ComboBox 点不开下拉、TextBox 渲染空白。`AppTheme.axaml` 以 `AvaloniaResource` 打包进 `.csproj`。
 - **logo**：卡片 header 行 STTmini 前的 24×24 图标 = 真实 app icon，以 `Assets/logo.png` 加载（`<Image Source="avares://STTmini.App/Assets/logo.png" />`，样式 `Image.logo`）。早期用纯 AXAML 渐变方块占位，现已替换。PNG 走 Avalonia `<Image>` 解码路径（比 ICO 稳），与 app icon 同源（同由 `scripts/generate_icon.py` 渲染）。
@@ -351,6 +380,7 @@ RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
 
 **不**记录最近文件列表、不记录窗口几何。
 > 旧版曾含 `DefaultOutputFormat`——转录结果现同时持有纯文本与 SRT（§6.2），该项已移除。`SettingsStore` 用 System.Text.Json 默认 `Skip` 未映射成员，残留旧键会被静默忽略，无需迁移。
+> 批量模式（§4.5）**不新增 Settings 字段**：输出固定写各输入文件同目录（无需配置输出目录）、格式勾选与模式选择是会话级 UI 状态（默认双勾，不持久化）。
 
 ### 8.3 模型目录
 
@@ -529,15 +559,19 @@ v1 维持 Paraformer-zh int8。
 | `Audio` | `VadWindowSlicer` | VAD 喂入的 512 样本窗口切片（纯逻辑） |
 | `Audio` | `SpeechSegment` / `IVoiceActivityDetector` / `SherpaVoiceActivityDetector` | VAD 抽象 + Silero 实现 |
 | `Audio` | `IAudioExtractor` | 音频提取接口 |
+| `Audio` | `BatchInputCollector` | 批量混合路径→去重媒体文件列表（纯逻辑，§4.5） |
 | `Configuration` | `Settings` | 设置 POCO（§8.2） |
 | `Configuration` | `SettingsStore` | 配置读写（损坏回退默认） |
 | `Configuration` | `AppPaths` | 平台相关路径（portable/XDG） |
 | `Errors` | `STTminiException` 及四个子类 | 异常分类（§11.1） |
 | `Logging` | `FileLoggerProvider` | 手写文件 logger（含滚动） |
 | `Models` | `ModelPathResolver` / `ModelFileNames` | 模型路径解析与存在性校验 |
-| `Pipeline` | `TranscriptionEngine` | 流水线编排（§4.1 / §7） |
+| `Pipeline` | `ITranscriptionEngine` / `TranscriptionEngine` | 转录引擎接口（批量 seam）+ 实现（流水线编排 §4.1 / §4.5 / §7） |
 | `Pipeline` | `TranscriptionProgress` / `TranscriptionStage` | 进度报告 |
 | `Pipeline` | `ITranscriptionComponentsFactory` / `TranscriptionComponentsFactory` | 每运行新建 recognizer/VAD |
+| `Pipeline` | `BatchTranscriptionRunner` / `IBatchOutputWriter` / `FileBatchOutputWriter` | 批量顺序编排（§4.5：失败跳过、两层进度、写输出） |
+| `Pipeline` | `BatchInputCollector`→见 Audio；`BatchOutputResolver` / `BatchOutputFormat` | 批量输出路径解析（同目录同 basename 换扩展名）+ 格式 flags |
+| `Pipeline` | `BatchTranscriptionProgress` / `BatchFileOutcome` / `BatchTranscriptionResult` | 批量进度 + 单文件结局 + 总结果 DTO |
 | `Recognition` | `RecognitionResult` / `SegmentRecognition` | Core 自有 DTO |
 | `Recognition` | `IRecognizer` / `SherpaRecognizer` | Paraformer 封装 |
 | `Subtitles` | `SrtFormatter` / `PlainTextFormatter` / `TimestampMath` | 格式化与时间戳（纯逻辑） |
@@ -547,9 +581,11 @@ v1 维持 Paraformer-zh int8。
 | 命名空间 | 类型 | 职责 |
 |----------|------|------|
 | (root) | `Program` / `App` / `ViewLocator` | 入口、DI 装配、VM→View 映射 |
-| `ViewModels` | `ViewModelBase` / `MainWindowViewModel` / `SettingsViewModel` | MVVM（CommunityToolkit.Mvvm 源生成器） |
+| `ViewModels` | `ViewModelBase` / `MainWindowViewModel` / `SettingsViewModel` | MVVM（CommunityToolkit.Mvvm 源生成器）。`MainWindowViewModel` 内嵌两套隔离字段：单文件（`_inputPath`/`_cts`/`IsBusy`）与批量（`BatchItems`/`_batchCts`/`IsBatchBusy`，§4.5 / §6.2） |
+| `ViewModels` | `BatchItemViewModel` / `BatchStatusToBrushConverter` | 批量列表行 VM（文件名+状态+行内进度+产出/错误摘要+三个操作回调 `RemoveRequested`/`OpenOutputRequested`/`RetryRequested`）+ 状态→颜色转换器（§4.5 / §6.3 / §6.6） |
 | `Views` | `MainWindow` / `SettingsView` | Avalonia 视图（简体中文） |
 | `Services` | `IFilePickerService` / `FilePickerService` | 文件选择/保存（StorageProvider） |
+| `Services` | `IFileLauncher` / `FileLauncher` | 用系统默认程序打开产出文件/目录（封装 `LauncherExtensions`，批量行「打开」操作，§6.6） |
 | `Styles` | `AppTheme.axaml`（loose `<Styles>` 资源，无 code-behind） | 集中式样式层（class 选择器设计系统，B 方案，§6.6） |
 | `Assets` | `app.ico`（7 档多分辨率）+ `logo.png`（256×256） | 应用图标：`app.ico` 由 `<ApplicationIcon>` 嵌入 exe + `AvaloniaResource` 供 `MainWindow.Icon`；`logo.png` 供顶栏 `<Image>` logo（§6.6）。两者同源，源图脚本 `scripts/generate_icon.py` |
 
@@ -570,12 +606,31 @@ v1 维持 Paraformer-zh int8。
   - `UseWin32` / `UseX11` / `UseSkia` / `UseHarfBuzz` 均为扩展方法，所在命名空间是根 `Avalonia`（尽管 `UseWin32` 的实现类位于 `Avalonia.Win32.dll`），无需额外 `using`。
 - **体积优化（移除内嵌 Inter 字体）**：早先引 `Avalonia.Fonts.Inter`（~1.9MB）并在 `Program.cs` 调 `.WithInterFont()`。但 Inter 仅含西文字形，本应用 UI 为简体中文（§6.1），中文最终走系统字体 fallback。改为移除该包与调用，UI 西文跟随系统默认字体（Windows=Segoe UI / Linux=DejaVu Sans，两平台均含中文），视觉差异极小。
 - **吞吐优化（CPU 多核并行）**：首版 `NumThreads=1` + 串行逐段 `Decode(stream)`，N 核机器稳态 CPU≈1/N（如 8 核 ~12%）。改为两层并行共用单 recognizer（§4.4）：① `NumThreads=min(ProcessorCount,16)` 走 ONNX Runtime intra-op；② `TranscriptionEngine` 按 `BatchSize=8` 分批，每批一次 `Decode(IEnumerable<OfflineStream>)`（1.13.4 反射确认存在该重载，paraformer 支持批维）。`IRecognizer` 新增默认接口方法 `RecognizeMany`（回退为循环 `Recognize`，保持测试 stub 零改动）。批结果按 stream 创建顺序读取，与单段路径逐字一致；取消粒度降为批边界；进度仍逐段上报（§6.3 平滑度不退化）。明确**不**采用应用层多 recognizer 并行（线程不安全 + 内存×N + 线程过订阅）。
+- **批量模式新增（§4.5 / §6.2 / §6.4）**：
+  - 从 `TranscriptionEngine` 抽接口 `ITranscriptionEngine`（仅 `TranscribeAsync`，§4.3 seam 精神），DI 注册由具体类改为 `AddSingleton<ITranscriptionEngine, TranscriptionEngine>()`，依赖方（`MainWindowViewModel`）改注入接口。零行为回归，现有 `TranscriptionEngineTests` 仍直接构造具体类不受影响。
+  - `BatchTranscriptionRunner`（新）顺序调用引擎 N 次，失败跳过继续（异常类型映射为简短 UI 文案），按 `BatchOutputFormat` flags 写输出。写盘副作用经 `IBatchOutputWriter` 抽象隔离，便于测试注入内存采集器。**明确不并行跨文件**（同 §4.4 否决理由）。
+  - 纯逻辑 `BatchInputCollector`（混合路径→去重媒体文件列表，文件夹仅顶层不递归）+ `BatchOutputResolver`（同目录同 basename 换扩展名）+ `BatchOutputFormat` flags。均覆盖单测。
+  - UI：主窗 header 加 `[单文件|批量]` 分段切换（`Border.segmented` + `RadioButton.segmented-item`，绑定 `IsBatchMode`）；R1/R3/R4 各段用 `IsVisible` 切换单文件/批量子视图，骨架 Grid 不变；批量列表 `ListBox` + `BatchItemViewModel` 行 VM + `BatchStatusToBrushConverter` 状态圆点配色。拖放扩展：单文件模式取首个 dropped 文件，批量模式枚举全部（`DataTransferExtensions.TryGetFiles`，含文件夹由 `BatchInputCollector` 展开）。
+  - `IFilePickerService` 增 `PickOpenFilesAsync`（`AllowMultiple=true`）+ `PickFolderAsync`（`OpenFolderPickerAsync`）。`AppTheme.axaml` 增 `segmented`/`segmented-item`/`batch-list`/`batch-empty`/`status-dot` 样式类 + `SuccessBrush`/`PendingBrush`/`RunningBrush` 色板 token。
+  - `RadioButton` 在 Avalonia 12 **不直接支持 `BoxShadow`**（仅 `Border` 有）——分段选中态只改背景色 + 文字色，去掉阴影 setter。
+  - `BatchStatusToBrushConverter` 从应用级 `IResourceHost`（`Application.Current`）按 token 名取色板，避免色值在代码里重复。
+- **批量列表 UX 优化（§6.6）**：行操作（移除 / 打开产出 / 重试）经 `BatchItemViewModel` 上三个回调字段（`RemoveRequested`/`OpenOutputRequested`/`RetryRequested`）注入父 VM，item 不反向持有 parent，避免循环引用耦合（命令参数走 CommandParameter 字符串是黑魔法，弃用）。
+  - **行内 × 移除按钮常驻**（HandBrake/Adobe Media Encoder 模式，非 hover-reveal——发现性更好），运行中行禁用。**不做 checkbox 多选**（同类转录/编码工具均无，单行 × 已够）。
+  - **列表头**「N 个文件」+「清空已完成」+「移除全部」（VS Code 模式），`BatchItemsCountText`/`HasCompletedItems`/`HasBatchItems` 派生属性经 `CollectionChanged` 联动刷新。「移除全部」原在 R1 输入段（文案「清空」），下移到 R3 列表头最右、文案改为「移除全部」与「清空已完成」词汇区分；破坏性更强的操作放最右（UI 惯例）。两个清空按钮均按状态条件渲染——空列表时列表头只显示计数。
+  - **运行中行内 2px 细进度条**（与顶部整体进度条互补）；`OnBatchProgress` 仅在首次进入运行态调 `MarkRunning`（它重置进度），之后用 `UpdateProgress` 持续推进——否则每次进度回传都把行内条拍回 0。
+  - **行解析改为按 InputPath（完成事件）/ FileName（运行中）查找**，而非按索引：失败重试是**子集运行**（`StartBatchAsync(forcedInputs: [单项])`），索引不再对齐 `BatchItems` 顺序。
+  - **空态虚线拖放区**（Aiko/下载管理器模式）：📁 + 引导文案，列表为空时撑满 `*` 行。
+  - 「打开产出」经新 seam `IFileLauncher`/`FileLauncher`（封装 `TopLevel.Launcher.LaunchFileInfoAsync`/`LaunchDirectoryInfoAsync`）：产出 1 个打开文件、多个打开所在目录（更稳，避免歧义）。失败静默（平台默认关联程序缺失会抛）。
+  - **重试语义简化**：失败行「重试」→ `MarkPending` + 若空闲立即 `StartBatchAsync(forcedInputs:[该项])`（仅重跑该项）；若批量在跑则仅重置状态 + 提示稍后再开始。**不实现**队列插入（避免改 runner）。
+  - Avalonia 12 `TopLevel.Launcher` 属性存在但无 XML 文档，反射/XML 查不到——以编译器实参为准。
 
 ### 14.3 待办（手动冒烟，发布前）
 
 - 下载真实模型到 `models/`（`scripts/models.sh`），填入 SHA256 占位。
 - 用真实中文视频跑一次端到端转录，核对 SRT 时间戳与纯文本段落分隔。
 - **多核 CPU 占用核对（§4.4 吞吐优化）**：转录中观察任务管理器 CPU 占用，应在 8 核机器上达 ~70-90%（改前 ~12%）；并核对识别文本与优化前逐字一致（并行只动吞吐，不改识别内容）。若 CPU 仍低，排查是否 NumThreads cap 过低或 batch 内部未并行。
+- **批量模式核对（§4.5）**：选一文件夹含多个中文视频 → 勾 txt+srt → 开始批量转录；核对：①每个文件产出 `同名.txt`+`同名.srt` 在源目录；②文件列表行状态（等待/进行中/完成/失败）实时刷新、运行中行内 2px 进度条随段推进；③故意放一个无音频/损坏文件，确认失败被跳过、其余继续、结束汇总正确；④批量中点「取消」，确认已完成文件保留、未处理的停止；⑤切回单文件模式仍正常工作。
+- **批量列表 UX 核对（§6.6）**：①行右侧 × 按钮可移除等待/完成/失败行（运行中那行禁用）；②成功行「打开」按钮：产出 1 个→打开该文件、产出多个→打开所在目录；③失败行「重试」：空闲时仅重跑该项、批量中时提示稍后；④列表头「清空已完成」仅移除完成项、「移除全部」清空整个列表，两者均按状态条件渲染（空列表时不显示）；⑤列表为空时显示虚线拖放区；⑥计数「N 个文件」随增删刷新。
 - 跨平台验证：Windows 单文件夹运行 + Linux tarball 运行。
 
 ---

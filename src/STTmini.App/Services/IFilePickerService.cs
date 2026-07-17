@@ -11,6 +11,12 @@ public interface IFilePickerService
     /// <summary>弹出打开文件对话框，返回所选文件本地路径（取消则 null）。</summary>
     Task<string?> PickOpenFileAsync(string title, params string[] patterns);
 
+    /// <summary>弹出多选打开文件对话框，返回所选文件本地路径列表（取消/未选返回空列表）。</summary>
+    Task<IReadOnlyList<string>> PickOpenFilesAsync(string title, params string[] patterns);
+
+    /// <summary>弹出选择文件夹对话框，返回所选文件夹本地路径（取消则 null）。用于批量模式（AGENTS.md §4.5）。</summary>
+    Task<string?> PickFolderAsync(string title);
+
     /// <summary>弹出保存文件对话框，返回目标文件本地路径（取消则 null）。</summary>
     Task<string?> PickSaveFileAsync(string title, string suggestedName, string defaultExtension);
 

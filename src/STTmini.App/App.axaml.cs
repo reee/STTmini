@@ -76,11 +76,18 @@ public partial class App : Application
         // 不在启动期解析——避免缺 ffmpeg 时无法打开 Settings 修正路径。
         services.AddSingleton<IAudioExtractor, FfmpegAudioExtractor>();
 
-        // 转录引擎（AGENTS.md §4.1 / §7）
-        services.AddSingleton<TranscriptionEngine>();
+        // 转录引擎（AGENTS.md §4.1 / §7）。注册为接口：批量编排 BatchTranscriptionRunner 也依赖同一 seam。
+        services.AddSingleton<ITranscriptionEngine, TranscriptionEngine>();
+
+        // 批量编排器（AGENTS.md §4.5：顺序调用引擎 N 次，失败跳过继续）。
+        services.AddSingleton<IBatchOutputWriter>(_ => FileBatchOutputWriter.Instance);
+        services.AddSingleton<BatchTranscriptionRunner>();
 
         // 文件对话框服务（封装 Avalonia StorageProvider，便于测试）
         services.AddSingleton<IFilePickerService, FilePickerService>();
+
+        // 系统默认程序打开文件/文件夹（封装 Avalonia LauncherExtensions，便于测试）
+        services.AddSingleton<IFileLauncher, FileLauncher>();
 
         // ViewModels + Views
         services.AddSingleton<MainWindowViewModel>();
