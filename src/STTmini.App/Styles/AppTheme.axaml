@@ -221,24 +221,50 @@
     <Setter Property="Stretch" Value="Uniform" />
   </Style>
 
-  <!-- ============ 模式分段切换器 [单文件 | 批量]（AGENTS.md §4.5 / §6.2）============
-       浅灰圆角胶囊内两个并排 RadioButton，选中态填白 + 主色字 + 轻阴影。 -->
-  <Style Selector="Border.segmented">
-    <Setter Property="Background" Value="{StaticResource InputFillBrush}" />
-    <Setter Property="CornerRadius" Value="8" />
-    <Setter Property="Padding" Value="3" />
+  <!-- ============ 模式 Tab 切换 [单文件 | 批量]（AGENTS.md §4.5 / §6.2）============
+       下划线 Tab：Tab 条透明、紧贴卡片左右 padding；Tab 项默认灰色字、选中态主色字 +
+       底部主色下划线（Fluent TabItem 模板自带 selection indicator，这里只覆盖颜色与文字）。
+       早期版本用 Border.segmented 胶囊 + RadioButton.segmented-item；现已改为真 TabControl。 -->
+  <!-- TabControl 容器：去默认边框/背景，让卡片内干净嵌套；内容区不留 padding -->
+  <Style Selector="TabControl.mode-tab">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
   </Style>
-  <Style Selector="RadioButton.segmented-item">
+  <!-- Tab 条（TabStrip）：透明底、左右贴卡片 padding 28、底部 1px 分割线 -->
+  <Style Selector="TabControl.mode-tab /template/ TabStrip">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Margin" Value="28,0" />
+  </Style>
+  <!-- 单个 Tab 项（未选中）：透明底、灰色字、半粗、内边距 -->
+  <Style Selector="TabControl.mode-tab TabItem">
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
-    <Setter Property="Padding" Value="14,5" />
-    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="FontSize" Value="14" />
     <Setter Property="FontWeight" Value="SemiBold" />
-    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Padding" Value="16,10" />
   </Style>
-  <Style Selector="RadioButton.segmented-item:checked">
-    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+  <!-- hover：提前变主色字。三态走「灰 → 靛蓝（hover）→ 靛蓝 + 下划线（选中）」，
+       hover 与选中字色相同、仅靠下划线区分——避免 Fluent 默认把 hover 字渲成黑色
+       跳出灰→靛蓝色系（用户反馈的「配色割裂」）。 -->
+  <Style Selector="TabControl.mode-tab TabItem:pointerover">
     <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
+  </Style>
+  <!-- 选中态：主色字（+ 下方 IndicatorTemplate 提供的下划线，与本条字色共同标识选中） -->
+  <Style Selector="TabControl.mode-tab TabItem:selected">
+    <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
+  </Style>
+  <!-- 选中态下划线指示器：用 PrimaryBrush 重写 IndicatorTemplate（Rectangle），
+       覆盖 Fluent 默认色（默认是系统/Azure 色）。限定 :selected——指示器语义上只属于选中项，
+       避免对未选中 TabItem 套上一个永不被渲染的模板（Speculative Generality）。
+       TabItem.IndicatorTemplate 类型是 IDataTemplate——Avalonia XAML 用 <DataTemplate>
+       而非 <Template>（后者是 IControlTemplate，类型不匹配会运行期抛 InvalidCastException）。 -->
+  <Style Selector="TabControl.mode-tab TabItem:selected">
+    <Setter Property="IndicatorTemplate">
+      <DataTemplate>
+        <Rectangle Fill="{StaticResource PrimaryBrush}" Height="2" VerticalAlignment="Bottom" />
+      </DataTemplate>
+    </Setter>
   </Style>
 
   <!-- ============ 批量文件列表（AGENTS.md §4.5 / §6.3）============
@@ -305,6 +331,26 @@
     <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="MinWidth" Value="120" />
+  </Style>
+
+  <!-- ============ ListBoxItem 强调色统一（AGENTS.md §6.6）============
+       Fluent 主题的 ListBoxItem 选中/hover 高亮默认走「系统强调色」（Windows 默认蓝 #0078D4），
+       与本设计的靛蓝 #5B5BD6 不一致——会看到「列表选中蓝 vs 行内进度条靛蓝」的割裂。
+       这里用 :selected / :pointerover 伪类直接覆盖背景色，把列表强调色统一到 PrimaryBrush。
+
+       注意：CheckBox 不在此列——曾经把勾选态的 Path / Border 也改主色，但勾选框整体填主色
+       视觉过重、与卡片轻盈基调不协调，已回滚。CheckBox 维持 Fluent 默认外观。 -->
+
+  <!-- ListBoxItem 选中/hover 高亮：用 PrimaryBrush 的低透明度派生（10% / 14% alpha）做柔和底，
+       替代 Fluent 默认的半透明系统蓝。批量列表的 ListBox 背景透明、行内自有状态色，选中态弱表达即可。 -->
+  <Style Selector="ListBoxItem:pointerover">
+    <Setter Property="Background" Value="#105B5BD6" />
+  </Style>
+  <Style Selector="ListBoxItem:selected">
+    <Setter Property="Background" Value="#1A5B5BD6" />
+  </Style>
+  <Style Selector="ListBoxItem:selected:pointerover">
+    <Setter Property="Background" Value="#265B5BD6" />
   </Style>
 
 </Styles>

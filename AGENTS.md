@@ -15,7 +15,7 @@
 - **跨平台**：基于 .NET 10 + Avalonia，Windows 与 Linux 同一份代码库。
 - **离线**：所有识别在本地完成，不依赖网络服务。
 - **简体中文优先**：界面与识别均面向简体中文，暂不考虑多语言。
-- **单文件 / 批量双模式**：主窗 header 分段切换 `[单文件|批量]`。单文件流程保留实时预览 + 双保存；批量模式支持选文件/文件夹、勾选导出格式（txt/srt/两者）、顺序转录、失败跳过继续、同目录自动产出（§4.5 / §6.2）。
+- **单文件 / 批量双模式**：主窗品牌行下方 Tab 切换 `[单文件|批量]`。单文件流程保留实时预览 + 双保存；批量模式支持选文件/文件夹、勾选导出格式（txt/srt/两者）、顺序转录、失败跳过继续、同目录自动产出（§4.5 / §6.2）。
 
 ### 1.1 名称语义
 
@@ -278,7 +278,7 @@ OfflineRecognizerResult result = stream.Result;
 
 ### 6.2 工作流
 
-主窗 header `[单文件|批量]` 分段切换决定走哪条工作流（§4.5）。两套流程在 VM 中字段/CTS 完全隔离（单文件 `_cts` + `IsBusy`；批量 `_batchCts` + `IsBatchBusy`），切换时若任一在跑则禁用切换。
+主窗品牌行下方 `[单文件|批量]` Tab 切换决定走哪条工作流（§4.5）。两套流程在 VM 中字段/CTS 完全隔离（单文件 `_cts` + `IsBusy`；批量 `_batchCts` + `IsBatchBusy`），切换时若任一在跑则禁用切换（两个 TabItem 的 `IsEnabled` 绑 `CanSwitchMode`）。
 
 **单文件**（默认）。主流程：
 
@@ -328,13 +328,16 @@ ASR 阶段每完成一段即通过 `IProgress<T>` 推送一次，结果面板**�
 
 主窗与设置弹窗采用统一的**卡片现代风**（Linear/Notion 系），由集中式样式层 `Styles/AppTheme.axaml` 定义：
 
-- **配色**：浅灰页面底（`#F4F5F7`）+ 白卡片 + 柔阴影；靛蓝强调色（`#5B5BD6`）用于主按钮/进度条/链接。
-- **结构（主窗）**：**无顶部应用栏**——单张居中主卡片，卡片内由 `Grid RowDefinitions="Auto,Auto,Auto,*,Auto"` 锁骨架（**不**再用 StackPanel + 外层 ScrollViewer，否则结果文本会把底 action-bar 撑出屏幕）：
-  - R0 卡片 header 行：左 logo + STTmini 小标题，**中右 `[单文件|批量]` 分段切换**（`Border.segmented` + 两个 `RadioButton.segmented-item` 绑定 `IsBatchMode`，§4.5 / §6.2），右设置齿轮 `Button.icon-btn`（`OpenSettings`）。早期版本有独立顶栏 appbar 承载主 CTA；CTA 移入卡片后 appbar 失去存在理由已移除。
-  - R1 输入段（`card-section`）：单文件模式 = input-pill + 浏览 + **开始转录 CTA 同行**（浏览→转录是相邻步骤，CTA 紧跟输入框；CTA 禁用判据 `CanTranscribe => !IsBusy && _inputPath 非空 && IsFfmpegAvailable`，三前置条件任一不满足即灰显）。ffmpeg 不可用时输入段下方显示「未检测到 ffmpeg，点右上角 ⚙ 设置路径」。批量模式 = 选文件/选文件夹 + 格式 checkbox（txt/srt）；批量列表的「移除全部」入口下移到 R3 列表头（与「清空已完成」并列、词汇区分）。**R1/R3/R4 各段用 `IsVisible={IsBatchMode}` 按 `IsBatchMode` 切换单文件/批量子视图**，骨架不变。**支持拖放——`DragDrop.AllowDrop` 挂在最外层卡片上而非 input-pill**，命中区扩大到整张卡片；单文件模式取首个 dropped 文件，批量模式枚举全部（含文件夹，由 `BatchInputCollector` 展开）。
-  - R2 进度段（`card-section`，`IsVisible={IsBusy}`，Auto 行隐藏即坍缩）。批量模式另有独立进度段 `IsVisible={IsBatchBusy}`，两层进度（顶行文件 i/N + 次行段 j/M + 整体加权进度条）。
-  - R3 结果段（`card-section`，`*` 行驱动高度）：单文件模式 = result-panel 内 `TextBox.result-text` 加 `ScrollViewer.VerticalScrollBarVisibility="Auto"`；批量模式 = `Border.batch-list` 内 `ListBox`，**顶部列表头**（左 `BatchItemsCountText`「N 个文件」+ 右两按钮「清空已完成」（仅 `HasCompletedItems` 时可见）/「移除全部」（仅 `HasBatchItems` 时可见，破坏性更强放最右），**空态虚线拖放区** `Border.drop-zone`（📁 + 引导文案，列表为空时撑满 `*` 行），**行模板** `[状态圆点] [文件名 + 状态/产出/错误 + 运行中行内 2px 进度条] [打开/重试] [×]`（每行常驻 × 移除按钮，运行中禁用；成功行「打开」用系统默认程序打开产出、失败行「重试」）。内部滚动。**仅内容区内部滚动**，action-bar 永远钉在卡片底——「保持 App 高度不变」的关键：骨架锁高 + 内容区独占弹性。行操作经 `BatchItemViewModel` 上的 `RemoveRequested`/`OpenOutputRequested`/`RetryRequested` 回调注入父 VM（item 不反向持有 parent）。
-  - R4 action-bar：单文件模式 = 状态 + 保存文本 + 保存字幕（取消已移除，§6.4）。批量模式 = 批量状态 + **取消** + 开始批量转录（批量恢复取消，§6.4）。
+- **配色**：浅灰页面底（`#F4F5F7`）+ 白卡片 + 柔阴影；靛蓝强调色（`#5B5BD6`）用于主按钮/进度条/链接。**强调色局部统一**：Fluent 主题默认让 ListBoxItem 选中/hover 高亮、TabItem hover 走「系统强调色」（Windows 默认蓝 `#0078D4`），与本设计的靛蓝不一致——`AppTheme.axaml` 用 `:selected` / `:pointerover` 伪类把这两类控件统一到 `PrimaryBrush`（详见 §14.2「强调色统一」修正项），避免「系统蓝 vs 设计靛蓝」割裂。TabItem 三态刻意走「灰（未选中）→ 靛蓝（hover）→ 靛蓝 + 下划线（选中）」——hover 与选中字色相同、仅靠下划线区分，避免 Fluent 默认把 hover 字渲黑跳出灰→靛蓝色系。**CheckBox 维持 Fluent 默认外观**——勾选框整体填主色视觉过重、与卡片轻盈基调不协调，曾尝试统一已回滚。
+- **结构（主窗）**：**无顶部应用栏**——单张居中主卡片，卡片内由 `Grid RowDefinitions="Auto,*,Auto"` 锁骨架（**不**再用 StackPanel + 外层 ScrollViewer，否则结果文本会把底 action-bar 撑出屏幕）：
+  - R0 品牌行（`card-header`）：左 logo + STTmini 小标题，右设置齿轮 `Button.icon-btn`（`OpenSettings`）。**模式切换不在此行**——已下移到 R1 的 TabControl。早期版本曾在此行放 `[单文件|批量]` 分段胶囊（`Border.segmented` + `RadioButton.segmented-item`），现改为真 TabControl（下条）；早期独立顶栏 appbar 承载主 CTA，CTA 移入卡片后 appbar 失去存在理由已移除。
+  - R1 模式 Tab + 内容（卡片骨架 `*` 行，独占弹性高度）：`TabControl.mode-tab`（下划线样式）承载 `[单文件|批量]` 两 `TabItem`，`SelectedIndex` 绑 VM 的 `ModeIndex`（int，0=单文件/1=批量）；`IsBatchMode`（bool）仍为真相源，与 `ModeIndex` 双向同步——`OnModeIndexChanged` 写 `IsBatchMode`（含 clamp 防御 + 一致性 guard），`OnIsBatchModeChanged` 回写 `ModeIndex`（对称 guard）。新增 int 桥接属性而非直接绑 bool：Avalonia 没有 bool↔int 内建转换器，加轻量属性比写 `IValueConverter` 更直接（与项目「不引入额外机制」一致）。两个 `TabItem` 的 `IsEnabled` 绑 `CanSwitchMode`：任一模式在跑都灰显不可点（等价原 `RadioButton.IsEnabled` 语义）。**每个 TabItem 内含该模式的 输入段 + 进度段 + 结果段**（`Grid RowDefinitions="Auto,Auto,*"`，详见下方 R1.1/R1.2/R1.3），不再用 `IsVisible={IsBatchMode}` 在卡片骨架层切兄弟视图——Tab 切换原生负责内容轮替。
+  - R1.1 输入段（`card-section`，在各自 TabItem 内首行）：单文件 Tab = input-pill + 浏览 + **开始转录 CTA 同行**（CTA 紧跟输入框；CTA 禁用判据 `CanTranscribe => !IsBusy && _inputPath 非空 && IsFfmpegAvailable`）；ffmpeg 不可用时输入段下方显示「未检测到 ffmpeg，点右上角 ⚙ 设置路径」。批量 Tab = 选文件/选文件夹 + 格式 checkbox（txt/srt）。**支持拖放——`DragDrop.AllowDrop` 挂在最外层卡片上而非 input-pill**，命中区扩大到整张卡片；单文件模式取首个 dropped 文件，批量模式枚举全部（含文件夹，由 `BatchInputCollector` 展开）。
+  - R1.2 进度段（`card-section`，在各自 TabItem 内中行）：单文件 `IsVisible={IsBusy}`，批量 `IsVisible={IsBatchBusy}`，Auto 行隐藏即坍缩。批量两层进度（顶行文件 i/N + 次行段 j/M + 整体加权进度条）。
+  - R1.3 结果段（`card-section`，在各自 TabItem 内末行，TabItem 内 `*` 行驱动高度）：单文件 = result-panel 内 `TextBox.result-text` 加 `ScrollViewer.VerticalScrollBarVisibility="Auto"`；批量 = `Border.batch-list` 内 `ListBox`，**顶部列表头**（左 `BatchItemsCountText`「N 个文件」+ 右两按钮「清空已完成」（仅 `HasCompletedItems` 时可见）/「移除全部」（仅 `HasBatchItems` 时可见，破坏性更强放最右），**空态虚线拖放区** `Border.drop-zone`（📁 + 引导文案，列表为空时撑满 `*` 行），**行模板** `[状态圆点] [文件名 + 状态/产出/错误 + 运行中行内 2px 进度条] [打开/重试] [×]`（每行常驻 × 移除按钮，运行中禁用；成功行「打开」用系统默认程序打开产出、失败行「重试」）。内部滚动。**仅内容区内部滚动**，action-bar 永远钉在卡片底——「保持 App 高度不变」的关键：骨架锁高 + 内容区独占弹性。行操作经 `BatchItemViewModel` 上的 `RemoveRequested`/`OpenOutputRequested`/`RetryRequested` 回调注入父 VM（item 不反向持有 parent）。
+  - R2 action-bar（卡片骨架底行，**在 TabControl 之外**）：不放进 TabItem——它是卡片底的一部分（顶分割线 + 灰底），进 TabItem 会破坏「卡片底」语义；两模式 action-bar 在 TabControl 外按 `IsVisible={IsBatchMode}` / `IsVisible={!IsBatchMode}` 切换，与 Tab 选择一致。单文件模式 = 状态 + 保存文本 + 保存字幕（取消已移除，§6.4）。批量模式 = 批量状态 + **取消** + 开始批量转录（批量恢复取消，§6.4）。
+
+  > **行号约定**：R0/R1/R2 是**卡片骨架**的 3 行（品牌 / Tab+内容 / action-bar）；R1.1/R1.2/R1.3 是 R1 内每个 `TabItem` 自己的 3 行子 Grid（输入 / 进度 / 结果）。两套编号刻意分层，避免「R2」同时指 action-bar 与 TabItem 内进度段。
 - **结构（设置弹窗）**：单卡片段（仅 ffmpeg 路径，§6.5）。弹窗高 ~390px、`CanResize=False`、**无外层 ScrollViewer**（只剩一段不需要滚）。早期为「三段内容」设计的高弹窗（520px）在设置项收敛后留有大量空白，已压低高度。仍保留 appbar + 单卡片 + action-bar 的视觉骨架以与主窗统一。
 - **样式机制**：Avalonia 12 class 选择器（`Classes="card"` / `"card-header"` / `"primary"` / `"input-pill"` 等）。`App.axaml` 的 `Application.Styles` 里**必须先放 `<FluentTheme />`，再 `<StyleInclude>` 本主题**——`AppTheme` 只定义 class 选择器覆盖，控件模板（ComboBox 弹出、TextBox 文字呈现等）全靠 FluentTheme 提供；漏掉 FluentTheme 会导致 ComboBox 点不开下拉、TextBox 渲染空白。`AppTheme.axaml` 以 `AvaloniaResource` 打包进 `.csproj`。
 - **logo**：卡片 header 行 STTmini 前的 24×24 图标 = 真实 app icon，以 `Assets/logo.png` 加载（`<Image Source="avares://STTmini.App/Assets/logo.png" />`，样式 `Image.logo`）。早期用纯 AXAML 渐变方块占位，现已替换。PNG 走 Avalonia `<Image>` 解码路径（比 ICO 稳），与 app icon 同源（同由 `scripts/generate_icon.py` 渲染）。
@@ -610,8 +613,8 @@ v1 维持 Paraformer-zh int8。
   - 从 `TranscriptionEngine` 抽接口 `ITranscriptionEngine`（仅 `TranscribeAsync`，§4.3 seam 精神），DI 注册由具体类改为 `AddSingleton<ITranscriptionEngine, TranscriptionEngine>()`，依赖方（`MainWindowViewModel`）改注入接口。零行为回归，现有 `TranscriptionEngineTests` 仍直接构造具体类不受影响。
   - `BatchTranscriptionRunner`（新）顺序调用引擎 N 次，失败跳过继续（异常类型映射为简短 UI 文案），按 `BatchOutputFormat` flags 写输出。写盘副作用经 `IBatchOutputWriter` 抽象隔离，便于测试注入内存采集器。**明确不并行跨文件**（同 §4.4 否决理由）。
   - 纯逻辑 `BatchInputCollector`（混合路径→去重媒体文件列表，文件夹仅顶层不递归）+ `BatchOutputResolver`（同目录同 basename 换扩展名）+ `BatchOutputFormat` flags。均覆盖单测。
-  - UI：主窗 header 加 `[单文件|批量]` 分段切换（`Border.segmented` + `RadioButton.segmented-item`，绑定 `IsBatchMode`）；R1/R3/R4 各段用 `IsVisible` 切换单文件/批量子视图，骨架 Grid 不变；批量列表 `ListBox` + `BatchItemViewModel` 行 VM + `BatchStatusToBrushConverter` 状态圆点配色。拖放扩展：单文件模式取首个 dropped 文件，批量模式枚举全部（`DataTransferExtensions.TryGetFiles`，含文件夹由 `BatchInputCollector` 展开）。
-  - `IFilePickerService` 增 `PickOpenFilesAsync`（`AllowMultiple=true`）+ `PickFolderAsync`（`OpenFolderPickerAsync`）。`AppTheme.axaml` 增 `segmented`/`segmented-item`/`batch-list`/`batch-empty`/`status-dot` 样式类 + `SuccessBrush`/`PendingBrush`/`RunningBrush` 色板 token。
+  - UI：主窗加 `[单文件|批量]` 模式切换（绑定 `IsBatchMode`）；R1/R3/R4 各段用 `IsVisible` 切换单文件/批量子视图（**注**：模式切换后来从分段胶囊改为 TabControl，骨架与切换机制见下方「模式切换改为 TabControl」修正项）；批量列表 `ListBox` + `BatchItemViewModel` 行 VM + `BatchStatusToBrushConverter` 状态圆点配色。拖放扩展：单文件模式取首个 dropped 文件，批量模式枚举全部（`DataTransferExtensions.TryGetFiles`，含文件夹由 `BatchInputCollector` 展开）。
+  - `IFilePickerService` 增 `PickOpenFilesAsync`（`AllowMultiple=true`）+ `PickFolderAsync`（`OpenFolderPickerAsync`）。`AppTheme.axaml` 增 `segmented`/`segmented-item`/`batch-list`/`batch-empty`/`status-dot` 样式类 + `SuccessBrush`/`PendingBrush`/`RunningBrush` 色板 token。（**注**：`segmented`/`segmented-item` 后续已删除——模式切换改为 TabControl，见下方「模式切换改为 TabControl」修正项；`batch-list`/`batch-empty`/`status-dot` 与三色板仍在用。）
   - `RadioButton` 在 Avalonia 12 **不直接支持 `BoxShadow`**（仅 `Border` 有）——分段选中态只改背景色 + 文字色，去掉阴影 setter。
   - `BatchStatusToBrushConverter` 从应用级 `IResourceHost`（`Application.Current`）按 token 名取色板，避免色值在代码里重复。
 - **批量列表 UX 优化（§6.6）**：行操作（移除 / 打开产出 / 重试）经 `BatchItemViewModel` 上三个回调字段（`RemoveRequested`/`OpenOutputRequested`/`RetryRequested`）注入父 VM，item 不反向持有 parent，避免循环引用耦合（命令参数走 CommandParameter 字符串是黑魔法，弃用）。
@@ -623,6 +626,15 @@ v1 维持 Paraformer-zh int8。
   - 「打开产出」经新 seam `IFileLauncher`/`FileLauncher`（封装 `TopLevel.Launcher.LaunchFileInfoAsync`/`LaunchDirectoryInfoAsync`）：产出 1 个打开文件、多个打开所在目录（更稳，避免歧义）。失败静默（平台默认关联程序缺失会抛）。
   - **重试语义简化**：失败行「重试」→ `MarkPending` + 若空闲立即 `StartBatchAsync(forcedInputs:[该项])`（仅重跑该项）；若批量在跑则仅重置状态 + 提示稍后再开始。**不实现**队列插入（避免改 runner）。
   - Avalonia 12 `TopLevel.Launcher` 属性存在但无 XML 文档，反射/XML 查不到——以编译器实参为准。
+- **模式切换改为 TabControl（§6.6）**：早先用 `Border.segmented` 胶囊 + 两个 `RadioButton.segmented-item`（绑定 `IsBatchMode`），R1/R3/R4 各段靠兄弟 Border + `IsVisible={IsBatchMode}` 在卡片骨架层切换。改为真 `TabControl`（`TabControl.mode-tab`，下划线样式）：
+  - 骨架 Grid 由 5 行 `Auto,Auto,Auto,*,Auto` 收敛为 3 行 `Auto,*,Auto`（品牌 / Tab+内容 / action-bar）。每个 `TabItem` 内含该模式的 输入 + 进度 + 结果 三段（`Grid RowDefinitions="Auto,Auto,*"`），Tab 切换原生轮替内容，**不再在骨架层用 `IsVisible` 切兄弟视图**。action-bar（单文件保存 / 批量取消+开始）**保留在 TabControl 之外**、按 `IsBatchMode` 切换——它是卡片底的一部分（顶分割线 + 灰底），进 TabItem 会破坏「卡片底」语义。
+  - VM 新增 `ModeIndex`（int，0=单文件/1=批量）桥接属性，双向绑 `TabControl.SelectedIndex`；与 `IsBatchMode`（bool，仍是真相源）双向同步——`OnModeIndexChanged` 写 `IsBatchMode`、`OnIsBatchModeChanged` 回写 `ModeIndex`，两侧都带一致性 guard（值未变跳过），且 `OnModeIndexChanged` 对非 0/1 值 clamp 到「单文件」防御 TabControl 过渡态。加 int 桥接而非直接绑 bool：Avalonia 无 bool↔int 内建转换器，加轻量属性比写 `IValueConverter` 更直接（与项目「不引入额外机制」一致）。`CanSwitchMode`（`!IsBusy && !IsBatchBusy`）保留，改绑到两个 `TabItem.IsEnabled`（任一模式在跑都灰显不可点，等价原 `RadioButton.IsEnabled` 语义）。
+  - `AppTheme.axaml` 删除 `Border.segmented` / `RadioButton.segmented-item` / `:checked` 三条 selector；新增 `TabControl.mode-tab` 系列：容器去边框/背景、`TabStrip` 透明底 + 左右 Margin 28 贴卡片 padding、`TabItem` 默认 `TextMutedBrush` 字 + `:selected` 主色字、选中态下划线用 `PrimaryBrush` 重写 `IndicatorTemplate`（限定 `TabItem:selected` 选择器——指示器语义上只属于选中项；`IndicatorTemplate` 类型是 `IDataTemplate`，XAML 必须用 `<DataTemplate>` 而非 `<Template>`，后者产生 `IControlTemplate` 会运行期抛 `InvalidCastException`——本变更首版曾踩此坑导致主窗不出现）。
+- **强调色统一（§6.6）**：TabControl 改造后用户反馈「Tab hover 字变黑、与选中态靛蓝割裂」。根因有二：① `TabItem:pointerover` 未定义，Avalonia 回退 Fluent 默认把 hover 字渲成 `TextPrimaryBrush`（黑），跳出灰→靛蓝色系；② 系统排查发现 `ListBoxItem` 选中/hover 高亮也走 Fluent 默认的「系统强调色」（Windows 默认蓝 `#0078D4`），与本设计靛蓝 `#5B5BD6` 不一致——同类「系统蓝 vs 设计靛蓝」割裂。修法（`AppTheme.axaml`）：
+  - **TabItem 三态** 走「灰（`TextMutedBrush`）→ 靛蓝（`:pointerover` 用 `PrimaryBrush`）→ 靛蓝 + 下划线（`:selected`）」——hover 与选中字色相同、仅靠下划线区分。用户在「hover 深灰 / hover 提前变靛蓝 / hover 主色浅化」三方案中选了「提前变靛蓝」。
+  - **ListBoxItem 选中/hover 高亮**：`:pointerover` / `:selected` / `:selected:pointerover` 用 `PrimaryBrush` 的低透明度派生（`#105B5BD6` / `#1A5B5BD6` / `#265B5BD6`，约 6%/10%/15% alpha）做柔和底——批量列表 `ListBox` 背景透明、行内自有状态色，选中态弱表达即可。
+  - **CheckBox 不改**：曾尝试把勾选态的 `Path` 填充 + `Border` 边框/底色也用 `PrimaryBrush` 统一（`:checked /template/ Path` + `:checked /template/ Border` + `:pointerover /template/ Border`），但勾选框整体填主色视觉过重、与卡片轻盈基调不协调，用户判定「不伦不类」已回滚。CheckBox 维持 Fluent 默认外观（勾标记走系统强调色，与设计主色不完全一致，但勾选框是次要控件、可接受）。
+  - **不覆盖 Fluent 资源键**（如 `CheckBoxCheckMarkFill` / `SystemControlHighlightAltListAccentLowBrush`）：尝试过放 `Styles.Resources` 里重定义这些键，但键名跨 Avalonia 版本不稳、且本仓库无该版本 Fluent 模板源可核对——改用伪类选择器更稳更可读。
 
 ### 14.3 待办（手动冒烟，发布前）
 
@@ -631,6 +643,7 @@ v1 维持 Paraformer-zh int8。
 - **多核 CPU 占用核对（§4.4 吞吐优化）**：转录中观察任务管理器 CPU 占用，应在 8 核机器上达 ~70-90%（改前 ~12%）；并核对识别文本与优化前逐字一致（并行只动吞吐，不改识别内容）。若 CPU 仍低，排查是否 NumThreads cap 过低或 batch 内部未并行。
 - **批量模式核对（§4.5）**：选一文件夹含多个中文视频 → 勾 txt+srt → 开始批量转录；核对：①每个文件产出 `同名.txt`+`同名.srt` 在源目录；②文件列表行状态（等待/进行中/完成/失败）实时刷新、运行中行内 2px 进度条随段推进；③故意放一个无音频/损坏文件，确认失败被跳过、其余继续、结束汇总正确；④批量中点「取消」，确认已完成文件保留、未处理的停止；⑤切回单文件模式仍正常工作。
 - **批量列表 UX 核对（§6.6）**：①行右侧 × 按钮可移除等待/完成/失败行（运行中那行禁用）；②成功行「打开」按钮：产出 1 个→打开该文件、产出多个→打开所在目录；③失败行「重试」：空闲时仅重跑该项、批量中时提示稍后；④列表头「清空已完成」仅移除完成项、「移除全部」清空整个列表，两者均按状态条件渲染（空列表时不显示）；⑤列表为空时显示虚线拖放区；⑥计数「N 个文件」随增删刷新。
+- **强调色统一核对（§6.6 / §14.2）**：①TabItem 三态：未选中灰字、hover 靛蓝字、选中靛蓝字 + 主色下划线（hover 不再变黑）；②批量列表行 hover/选中：背景是靛蓝低透明度（柔灰偏紫），不是系统蓝高亮。（CheckBox 维持 Fluent 默认，不在核对范围内。）
 - 跨平台验证：Windows 单文件夹运行 + Linux tarball 运行。
 
 ---

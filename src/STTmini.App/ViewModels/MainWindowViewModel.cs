@@ -153,12 +153,35 @@ public partial class MainWindowViewModel : ViewModelBase
     //  默认 IsBatchMode=false（启动即单文件，保留原体验）；header 分段切换开批量。
     // ================================================================
 
-    /// <summary>是否处于批量模式（header 分段切换绑定）。</summary>
+    /// <summary>
+    /// 是否处于批量模式（真相源；header Tab 选择、OnDrop 分流、批量态提示都读它）。
+    /// 与 <see cref="ModeIndex"/> 双向同步：Tab 切换走 ModeIndex→IsBatchMode，
+    /// 任何外部写 IsBatchMode 会回写 ModeIndex 让 TabControl 跟随。
+    /// </summary>
     [ObservableProperty]
     private bool _isBatchMode;
 
     /// <summary>
-    /// 模式分段切换是否可用：任一模式在跑都禁用切换（AGENTS.md §6.2）。
+    /// 模式 Tab 的 SelectedIndex（0=单文件，1=批量），直接绑定 TabControl.SelectedIndex。
+    /// 用 int 而非直接绑 IsBatchMode：Avalonia 没有 bool↔int 内建转换器，
+    /// 加一个轻量桥接属性比写 IValueConverter 更直接（与项目「不引入额外机制」一致）。
+    /// 与 IsBatchMode 双向同步：任一侧变化都写另一侧，但因 [ObservableProperty] 在
+    /// backing field 值未变时跳过通知，回写是 no-op，不会无限递归。
+    /// </summary>
+    [ObservableProperty]
+    private int _modeIndex;
+
+    partial void OnModeIndexChanged(int value)
+    {
+        // 防御 TabControl 在过渡态给出的越界值（非 0/1）：clamp 到合法区间后再写 IsBatchMode，
+        // 避免非法值让 IsBatchMode 卡在旧态。0/1 之外的值统一按「单文件」处理。
+        var batchMode = value is 1;
+        if (IsBatchMode == batchMode) return; // 已一致则跳过，避免对 IsBatchMode 的冗余写入
+        IsBatchMode = batchMode;
+    }
+
+    /// <summary>
+    /// 模式 Tab 是否可切换：任一模式在跑都禁用两个 TabItem（AGENTS.md §6.2）。
     /// 单文件转录中切到批量会孤立正在跑的任务，反之亦然——两套 CTS 隔离要求切换只能在双方都空闲时发生。
     /// </summary>
     public bool CanSwitchMode => !IsBusy && !IsBatchBusy;
@@ -217,6 +240,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnIsBatchModeChanged(bool value)
     {
+        // 同步回 TabControl.SelectedIndex；与 OnModeIndexChanged 对称——已一致则跳过冗余写入，
+        // [ObservableProperty] 本身也会跳过未变通知，这是双保险。
+        var newIndex = value ? 1 : 0;
+        if (_modeIndex != newIndex) ModeIndex = newIndex;
         StartBatchCommand.NotifyCanExecuteChanged();
         if (value)
         {
