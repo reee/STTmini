@@ -129,6 +129,11 @@ UI 层，引用 `STTmini.Core`。职责：
    │                  WindowSize(512 样本) 逐块 AcceptWaveform；一次性喂入整段音频会让
    │                  内部 circular-buffer 溢出、仅保留尾部（实测 672s 输入只剩末尾 0.3s）。
    │                  切片由纯逻辑 VadWindowSlicer 负责（见 §4.2）。
+   │                  注意3：MinSilenceDuration=0.2s（与 sherpa-onnx 官方 generate-subtitles.py
+   │                  一致；sherpa-onnx C++ 默认是 0.5s）。原值 0.5s 把中文句内停顿（中位数
+   │                  ~0.47s）误判为段内静音、多句并入一个 VAD 段，下游 §5.3 的 0.6s 段落阈值
+   │                  拿不到切句信号（§5.1：paraformer-zh int8 不输出标点）→ 输出一长行无切分。
+   │                  调参记录见 §14.2「VAD MinSilenceDuration 调参」。
    │
    ▼
 [3] 超长段重切     若 segment 时长 > 25s → 固定窗口切为多个子段
@@ -635,6 +640,11 @@ v1 维持 Paraformer-zh int8。
   - **ListBoxItem 选中/hover 高亮**：`:pointerover` / `:selected` / `:selected:pointerover` 用 `PrimaryBrush` 的低透明度派生（`#105B5BD6` / `#1A5B5BD6` / `#265B5BD6`，约 6%/10%/15% alpha）做柔和底——批量列表 `ListBox` 背景透明、行内自有状态色，选中态弱表达即可。
   - **CheckBox 不改**：曾尝试把勾选态的 `Path` 填充 + `Border` 边框/底色也用 `PrimaryBrush` 统一（`:checked /template/ Path` + `:checked /template/ Border` + `:pointerover /template/ Border`），但勾选框整体填主色视觉过重、与卡片轻盈基调不协调，用户判定「不伦不类」已回滚。CheckBox 维持 Fluent 默认外观（勾标记走系统强调色，与设计主色不完全一致，但勾选框是次要控件、可接受）。
   - **不覆盖 Fluent 资源键**（如 `CheckBoxCheckMarkFill` / `SystemControlHighlightAltListAccentLowBrush`）：尝试过放 `Styles.Resources` 里重定义这些键，但键名跨 Avalonia 版本不稳、且本仓库无该版本 Fluent 模板源可核对——改用伪类选择器更稳更可读。
+- **VAD MinSilenceDuration 调参（§4.1[2] / §5.3，切句优化）**：用户反馈「大量语句被错误切分到一起」，根因是 `SherpaVoiceActivityDetector` 的 `MinSilenceDuration` 从 sherpa-onnx C++ 默认值 `0.5s` 沿用——该值把中文句间停顿（实测中位数 ~0.47s）误判为「段内静音」忽略，多句并入一个 VAD 段；下游 §5.3 的 `ParagraphSilenceThresholdSeconds=0.6s` 与该值又仅差 0.1s，形成「死亡地带」：偶有切段的 gap（500ms 附近）也够不到段落阈值，全部退回单换行。对照业界：Silero VAD 官方默认 `min_silence_duration_ms=100`、sherpa-onnx 官方字幕示例 `generate-subtitles.py` 取 `0.2s`——本项目原值 0.5s 是 2.5×/5× 偏离。改为 `0.2f`（与 sherpa-onnx 官方字幕示例一致）：
+  - **只动这一个参数**——`ParagraphSilenceThresholdSeconds=0.6f` 不动（两参数同改会丧失因果可观察性，先单独看效果）。`MaxSpeechDuration=30s`、`Threshold=0.5f`、`MinSpeechDuration=0.25f` 不动。
+  - **明确不引入标点恢复路径**：paraformer-zh int8 不输出标点（§5.1，已核实），CT-Transformer +245MB 违背 Mini、§5.1 已否决；token 时间戳是 CIF 预测值精度有限、作为 P2 候选保留。
+  - **副作用**：VAD 段数上升、ASR batch 数略增——batch 推理（§4.4）吸收大部分开销；短段识别通常更准。
+  - **同步清理陈旧注释**：`RecognitionResult.Text` 文档注释原写「含 Paraformer 原生中文标点」（与 §5.1 实测不符的陈旧残留，曾误导调研 agent 误判方案分叉），改为「paraformer-zh int8 实测不输出标点」。`SherpaVoiceActivityDetector` 原注释把 0.5s 当「合理沿用」的表述一并改为反映本次主动调参的依据。
 
 ### 14.3 待办（手动冒烟，发布前）
 
@@ -644,6 +654,7 @@ v1 维持 Paraformer-zh int8。
 - **批量模式核对（§4.5）**：选一文件夹含多个中文视频 → 勾 txt+srt → 开始批量转录；核对：①每个文件产出 `同名.txt`+`同名.srt` 在源目录；②文件列表行状态（等待/进行中/完成/失败）实时刷新、运行中行内 2px 进度条随段推进；③故意放一个无音频/损坏文件，确认失败被跳过、其余继续、结束汇总正确；④批量中点「取消」，确认已完成文件保留、未处理的停止；⑤切回单文件模式仍正常工作。
 - **批量列表 UX 核对（§6.6）**：①行右侧 × 按钮可移除等待/完成/失败行（运行中那行禁用）；②成功行「打开」按钮：产出 1 个→打开该文件、产出多个→打开所在目录；③失败行「重试」：空闲时仅重跑该项、批量中时提示稍后；④列表头「清空已完成」仅移除完成项、「移除全部」清空整个列表，两者均按状态条件渲染（空列表时不显示）；⑤列表为空时显示虚线拖放区；⑥计数「N 个文件」随增删刷新。
 - **强调色统一核对（§6.6 / §14.2）**：①TabItem 三态：未选中灰字、hover 靛蓝字、选中靛蓝字 + 主色下划线（hover 不再变黑）；②批量列表行 hover/选中：背景是靛蓝低透明度（柔灰偏紫），不是系统蓝高亮。（CheckBox 维持 Fluent 默认，不在核对范围内。）
+- **VAD 切句核对（§4.1[2] / §14.2「VAD MinSilenceDuration 调参」）**：用同一份中文视频对比调整前后——①日志里 `VAD 输出 N 段` 的 N 应明显上升（200ms 切句阈值下段数增加）；②纯文本输出应能在句间停顿处出现换行、长段被拆开，不再是一长行无切分；③若切句仍偏粗（>300ms 停顿被合并），可考虑把 `MinSilenceDuration` 进一步降到 0.15s；若切句过细（单句被切成两段），回升到 0.25s。`ParagraphSilenceThresholdSeconds` 暂不动，除非段落分隔（空行）密度明显异常。
 - 跨平台验证：Windows 单文件夹运行 + Linux tarball 运行。
 
 ---

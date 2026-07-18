@@ -24,8 +24,13 @@ public sealed class SherpaVoiceActivityDetector : IVoiceActivityDetector
             {
                 Model = models.SileroVadPath,
                 Threshold = 0.5f,
-                // 默认 MinSilenceDuration=0.5s、MinSpeechDuration=0.25s 合理，沿用。
-                MinSilenceDuration = 0.5f,
+                // MinSilenceDuration=0.2s：与 sherpa-onnx 官方 generate-subtitles.py 一致。
+                // 原值 0.5s（sherpa-onnx C++ 默认）会把中文句内停顿（中位数 ~0.47s）误判为
+                // 段内静音、多句话并入一个 VAD 段，下游 PlainTextFormatter 拿不到切句信号
+                // （§5.1：paraformer-zh int8 不输出标点）→ 输出一长行无切分文本。
+                // 调到 0.2s 后 VAD 在「句间停顿」处切段，段间 gap 走 §5.3 的 0.6s 段落阈值。
+                // 调参记录见 AGENTS.md §4.1[2] / §14.2「VAD MinSilenceDuration 调参」。
+                MinSilenceDuration = 0.2f,
                 MinSpeechDuration = 0.25f,
                 // 与 VadWindowSlicer.WindowSize 必须一致：VAD 模型按此窗口推理。
                 WindowSize = VadWindowSlicer.WindowSize,
